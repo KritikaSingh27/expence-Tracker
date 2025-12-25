@@ -19,7 +19,7 @@ class Tag(models.Model):
 class Expense(models.Model):
     # In this setup we allow user to be null so API can be used without auth
     user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
-    amount = models.DecimalField(decimal_places= 2, max_digits= 5)
+    amount = models.DecimalField(decimal_places=2, max_digits=10)
     description = models.TextField(null=True, blank= True)
     date = models.DateField(null=True, blank=True)
     category = models.ForeignKey(
@@ -32,7 +32,7 @@ class Expense(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.desc or 'Expense'} - {self.amount}"
+        return f"{self.description or 'Expense'} - {self.amount}"
 
 class userSetting(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)

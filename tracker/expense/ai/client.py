@@ -4,7 +4,14 @@ import google.generativeai as genai
 from django.conf import settings
 from .prompts import CATEGORY_PROMPT, INSIGHT_PROMPT
 
-genai.configure(api_key=settings.GOOGLE_API_KEY)
+# Configure API key if available
+try:
+    if hasattr(settings, 'GOOGLE_API_KEY') and settings.GOOGLE_API_KEY:
+        genai.configure(api_key=settings.GOOGLE_API_KEY)
+    else:
+        print("Warning: GOOGLE_API_KEY not configured. AI features will be disabled.")
+except Exception as e:
+    print(f"Warning: Failed to configure Google AI: {e}")
 
 
 def _safe_load_json(text: str):
@@ -38,6 +45,11 @@ def suggest_category(description: str, amount: float, model_name: str = "models/
     # Ask Gemini to suggest a category. Returns {"category": "<name>"} or None.
     
     if not description:
+        return None
+
+    # Check if API key is configured
+    if not hasattr(settings, 'GOOGLE_API_KEY') or not settings.GOOGLE_API_KEY:
+        print("AI: GOOGLE_API_KEY not configured, skipping category suggestion.")
         return None
 
     prompt = CATEGORY_PROMPT.format(
@@ -102,6 +114,11 @@ def generate_insights(summary: dict, previous_total: float | None = None, model_
     # Defensive input check
     if not isinstance(summary, dict):
         print("generate_insights: invalid 'summary' input (not a dict).")
+        return None
+
+    # Check if API key is configured
+    if not hasattr(settings, 'GOOGLE_API_KEY') or not settings.GOOGLE_API_KEY:
+        print("AI: GOOGLE_API_KEY not configured, skipping insights generation.")
         return None
 
     # ensure by_category is JSON serializable

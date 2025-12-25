@@ -14,25 +14,72 @@ function App() {
   const [error, setError] = useState("");
 
   const [period, setPeriod] = useState("monthly");
-  const [activeTab, setActiveTab] = useState("overview"); // overview | daily | expenses
+  const [activeTab, setActiveTab] = useState("overview");
   const [filters, setFilters] = useState({
     start: "",
     end: "",
     search: "",
   });
 
-  // Load expenses list (with optional filters), aligned with current period
+  // Expense form modal state
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({
+    amount: "",
+    description: "",
+    date: new Date().toISOString().split('T')[0],
+    category: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  // User profile modal state
+  const [showUserModal, setShowUserModal] = useState(false);
+  
+  // Theme state - default is dark
+  const [theme, setTheme] = useState("dark");
+
+  // Edit expense modal state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingExpense, setEditingExpense] = useState(null);
+  const [editForm, setEditForm] = useState({
+    amount: "",
+    description: "",
+    date: "",
+    category: "",
+  });
+
+  // Load expenses list filtered by current period
   useEffect(() => {
     const fetchExpenses = async () => {
       try {
         setLoading(true);
         setError("");
 
+        // Calculate date range based on current period
+        let startDate = "";
+        let endDate = "";
+        
+        if (period === "weekly") {
+          const today = new Date();
+          const monday = new Date(today);
+          monday.setDate(today.getDate() - today.getDay() + 1);
+          const sunday = new Date(monday);
+          sunday.setDate(monday.getDate() + 6);
+          
+          startDate = monday.toISOString().split('T')[0];
+          endDate = sunday.toISOString().split('T')[0];
+        } else if (period === "monthly") {
+          const today = new Date();
+          const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+          const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+          
+          startDate = firstDay.toISOString().split('T')[0];
+          endDate = lastDay.toISOString().split('T')[0];
+        }
+
         const response = await axios.get(`${API_BASE}/expenses/`, {
           params: {
-            period,
-            start: filters.start || undefined,
-            end: filters.end || undefined,
+            start: filters.start || startDate,
+            end: filters.end || endDate,
             search: filters.search || undefined,
           },
         });
@@ -54,11 +101,9 @@ function App() {
     const fetchSummaryAndInsights = async () => {
       try {
         setSummaryLoading(true);
-        // Clear old data when switching periods
         setSummary(null);
         setInsights(null);
         
-        // Fetch both summary and insights to ensure we have complete data
         const [summaryRes, insightsRes] = await Promise.all([
           axios.get(`${API_BASE}/expenses/summary/`, {
             params: { period },
@@ -68,12 +113,10 @@ function App() {
           }),
         ]);
 
-        // Backend returns { summary, charts, cards, insight }
         setSummary(summaryRes.data || null);
         setInsights(insightsRes.data || null);
       } catch (err) {
         console.error("Error fetching summary/insights:", err);
-        // Don't override main error banner used for expenses list
       } finally {
         setSummaryLoading(false);
       }
@@ -87,390 +130,832 @@ function App() {
     setFilters((prev) => ({ ...prev, [name]: value }));
   };
 
+  // Handle expense form changes
+  const handleExpenseFormChange = (e) => {
+    const { name, value } = e.target;
+    setExpenseForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // Submit new expense
+  const handleExpenseSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!expenseForm.amount || !expenseForm.description) {
+      setError("Amount and description are required");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError("");
+
+      await axios.post(`${API_BASE}/expenses/`, {
+        amount: parseFloat(expenseForm.amount),
+        description: expenseForm.description,
+        date: expenseForm.date,
+        category: expenseForm.category || null,
+      });
+
+      // Reset form and close modal
+      setExpenseForm({
+        amount: "",
+        description: "",
+        date: new Date().toISOString().split('T')[0],
+        category: "",
+      });
+      setShowExpenseModal(false);
+
+      // Refresh data
+      await refreshData();
+    } catch (err) {
+      console.error("Error creating expense:", err);
+      setError("Failed to create expense. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Handle edit expense
+  const handleEditExpense = (expense) => {
+    setEditingExpense(expense);
+    setEditForm({
+      amount: expense.amount.toString(),
+      description: expense.description || "",
+      date: expense.date || "",
+      category: expense.category_name || "",
+    });
+    setShowEditModal(true);
+    setError(""); // Clear any previous errors
+  };
+
+  // Handle edit form changes
+  const handleEditFormChange = (e) => {
+    const { name, value } = e.target;
+    setEditForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // Submit edited expense
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!editForm.amount || !editForm.description) {
+      setError("Amount and description are required");
+      return;
+    }
+
+    const amount = parseFloat(editForm.amount);
+    if (isNaN(amount) || amount <= 0) {
+      setError("Please enter a valid amount greater than 0");
+      return;
+    }
+
+    if (amount > 99999999.99) {
+      setError("Amount cannot exceed 99,999,999.99");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError("");
+
+      const requestData = {
+        amount: amount,
+        description: editForm.description.trim(),
+        date: editForm.date || null,
+        category_name: editForm.category.trim() || null,
+      };
+
+      await axios.put(`${API_BASE}/expenses/${editingExpense.id}/`, requestData);
+      
+      // Close modal and refresh data
+      setShowEditModal(false);
+      setEditingExpense(null);
+      await refreshData();
+      
+    } catch (err) {
+      console.error("Error updating expense:", err);
+      setError("Failed to update expense. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Delete expense
+  const handleDeleteExpense = async () => {
+    if (!editingExpense) return;
+
+    try {
+      setSubmitting(true);
+      setError("");
+
+      await axios.delete(`${API_BASE}/expenses/${editingExpense.id}/`);
+
+      setShowEditModal(false);
+      setEditingExpense(null);
+      await refreshData();
+      
+    } catch (err) {
+      console.error("Error deleting expense:", err);
+      setError("Failed to delete expense. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Function to refresh data
+  const refreshData = async () => {
+    try {
+      let startDate = "";
+      let endDate = "";
+      
+      if (period === "weekly") {
+        const today = new Date();
+        const monday = new Date(today);
+        monday.setDate(today.getDate() - today.getDay() + 1);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        
+        startDate = monday.toISOString().split('T')[0];
+        endDate = sunday.toISOString().split('T')[0];
+      } else if (period === "monthly") {
+        const today = new Date();
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        
+        startDate = firstDay.toISOString().split('T')[0];
+        endDate = lastDay.toISOString().split('T')[0];
+      }
+
+      // Refresh expenses
+      const expensesResponse = await axios.get(`${API_BASE}/expenses/`, {
+        params: {
+          start: filters.start || startDate,
+          end: filters.end || endDate,
+          search: filters.search || undefined,
+        },
+      });
+      setExpenses(expensesResponse.data || []);
+
+      // Refresh summary and insights with error handling
+      try {
+        const summaryRes = await axios.get(`${API_BASE}/expenses/summary/`, {
+          params: { period },
+        });
+        setSummary(summaryRes.data || null);
+      } catch (summaryErr) {
+        console.error("Error refreshing summary:", summaryErr);
+      }
+
+      try {
+        const insightsRes = await axios.get(`${API_BASE}/expenses/insights/`, {
+          params: { period },
+        });
+        setInsights(insightsRes.data || null);
+      } catch (insightsErr) {
+        console.error("Error refreshing insights:", insightsErr);
+      }
+      
+    } catch (err) {
+      console.error("Error refreshing data:", err);
+    }
+  };
+
   // Prefer summary from /summary/, but fall back to /insights/ summary if needed
   const effectiveSummary = summary ?? insights?.summary ?? null;
 
-  const totalSpent =
-    effectiveSummary?.total ?? insights?.cards?.total_spent ?? null;
+  const totalSpent = effectiveSummary?.total ?? insights?.cards?.total_spent ?? null;
 
-  const topCategory =
-    insights?.cards?.top_category ||
+  const topCategory = insights?.cards?.top_category ||
     (effectiveSummary?.by_category &&
       effectiveSummary.by_category[0] &&
       effectiveSummary.by_category[0].name) ||
     null;
 
-  const insightText =
-    typeof insights?.insight === "string"
+  const insightText = typeof insights?.insight === "string"
       ? insights.insight
       : insights?.insight?.text || null;
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <div>
-          <h1 className="app-title">Expense Tracker</h1>
-          <p className="app-subtitle">
-            A clean dashboard to understand and reflect on your spending.
-          </p>
-        </div>
+    <div className={theme === "light" ? "light-theme" : ""}>
+      <div className="app">
+        <header className="app-header">
+          <div>
+            <h1 className="app-title">Expense Tracker</h1>
+            <p className="app-subtitle">
+              A clean dashboard to understand and reflect on your spending.
+            </p>
+          </div>
 
-        <div className="period-toggle">
+          <div className="header-actions">
+            <div className="period-toggle">
+              <button
+                className={period === "weekly" ? "pill pill-active" : "pill"}
+                onClick={() => setPeriod("weekly")}
+              >
+                Weekly
+              </button>
+              <button
+                className={period === "monthly" ? "pill pill-active" : "pill"}
+                onClick={() => setPeriod("monthly")}
+              >
+                Monthly
+              </button>
+            </div>
+
+            <button
+              className="user-profile-btn"
+              onClick={() => setShowUserModal(true)}
+              title="User Settings"
+            >
+              <svg 
+                className="profile-icon" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="currentColor" 
+                strokeWidth="2"
+              >
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            </button>
+          </div>
+        </header>
+
+        <div className="tabs">
           <button
-            className={
-              period === "weekly"
-                ? "pill pill-active"
-                : "pill"
-            }
-            onClick={() => setPeriod("weekly")}
+            className={activeTab === "overview" ? "tab tab-active" : "tab"}
+            onClick={() => setActiveTab("overview")}
           >
-            Weekly
+            Overview
           </button>
           <button
-            className={
-              period === "monthly"
-                ? "pill pill-active"
-                : "pill"
-            }
-            onClick={() => setPeriod("monthly")}
+            className={activeTab === "expenses" ? "tab tab-active" : "tab"}
+            onClick={() => setActiveTab("expenses")}
           >
-            Monthly
+            Expenses
           </button>
         </div>
-      </header>
 
-      <div className="tabs">
-        <button
-          className={activeTab === "overview" ? "tab tab-active" : "tab"}
-          onClick={() => setActiveTab("overview")}
-        >
-          Overview
-        </button>
-        <button
-          className={activeTab === "daily" ? "tab tab-active" : "tab"}
-          onClick={() => setActiveTab("daily")}
-        >
-          Daily trends
-        </button>
-        <button
-          className={activeTab === "expenses" ? "tab tab-active" : "tab"}
-          onClick={() => setActiveTab("expenses")}
-        >
-          Expenses
-        </button>
-      </div>
-
-      <main className="layout">
-        {activeTab === "overview" && (
-          <>
-            <section className="layout-main">
-              <div className="cards-grid">
-                <div className="card">
-                  <div className="card-label">
-                    Total spent ({period === "weekly" ? "this week" : "this month"})
+        <main className="layout">
+          {activeTab === "overview" && (
+            <>
+              <aside className="layout-side">
+                <div className="panel ai-insights-panel">
+                  <div className="ai-badge">
+                    <svg className="ai-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                    </svg>
+                    <span>AI Powered</span>
                   </div>
-                  <div className="card-value">
-                    {summaryLoading ? (
-                      <span style={{ opacity: 0.5 }}>Loading...</span>
-                    ) : totalSpent !== null ? (
-                      `₹${Number(totalSpent).toFixed(2)}`
-                    ) : (
-                      "–"
-                    )}
+                  <div className="panel-header">
+                    <h2 className="panel-title ai-title">
+                      <span className="ai-gradient-text">Smart Insights</span>
+                    </h2>
+                    <span className="panel-caption">
+                      Personalized analysis powered by Google Gemini AI
+                    </span>
                   </div>
-                  {effectiveSummary?.start && effectiveSummary?.end && (
-                    <div className="card-caption">
-                      {effectiveSummary.start} → {effectiveSummary.end}
+                  {loading ? (
+                    <div className="ai-loading">
+                      <div className="ai-loading-animation">
+                        <div className="ai-pulse"></div>
+                        <div className="ai-pulse"></div>
+                        <div className="ai-pulse"></div>
+                      </div>
+                      <span>AI is analyzing your spending patterns...</span>
+                    </div>
+                  ) : insightText ? (
+                    <div className="ai-insight-content">
+                      <div className="ai-insight-text">{insightText}</div>
+                      <div className="ai-footer">
+                        <svg className="ai-footer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <circle cx="12" cy="12" r="3"/>
+                          <path d="M12 1v6m0 6v6"/>
+                          <path d="m15.5 3.5-1.5 1.5"/>
+                          <path d="m10 12 1.5 1.5"/>
+                          <path d="m15.5 20.5-1.5-1.5"/>
+                          <path d="M4 12l2-2"/>
+                          <path d="M20 12l-2-2"/>
+                          <path d="m4.5 5.5 2 2"/>
+                          <path d="m18.5 5.5-2 2"/>
+                          <path d="m18.5 18.5-2-2"/>
+                          <path d="m4.5 18.5 2-2"/>
+                        </svg>
+                        <span>Generated by AI • Powered by Google Gemini</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="ai-empty-state">
+                      <div className="ai-empty-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                        </svg>
+                      </div>
+                      <p>AI insights will appear here when there is enough spending data to analyze.</p>
+                      <span className="ai-empty-caption">Add more expenses to unlock personalized insights!</span>
                     </div>
                   )}
                 </div>
 
-                <div className="card">
-                  <div className="card-label">Top category</div>
-                  <div className="card-value">
-                    {summaryLoading ? (
-                      <span style={{ opacity: 0.5 }}>Loading...</span>
-                    ) : topCategory ? (
-                      topCategory
-                    ) : (
-                      "No data"
+                <div className="panel">
+                  <div className="panel-header">
+                    <h2 className="panel-title">Category Totals</h2>
+                    <span className="panel-caption">
+                      Spending breakdown by category
+                    </span>
+                  </div>
+                  {effectiveSummary?.by_category && effectiveSummary.by_category.length > 0 ? (
+                    <ul className="category-list">
+                      {effectiveSummary.by_category.map((cat, idx) => (
+                        <li key={cat.id ?? cat.name} className="category-item">
+                          <div className="category-main">
+                            <span className="category-name">{cat.name}</span>
+                            <span className="category-amount">₹{Number(cat.total).toFixed(2)}</span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="empty-state">No category data yet.</p>
+                  )}
+                </div>
+              </aside>
+
+              <section className="layout-main">
+                <div className="cards-grid">
+                  <div className="card">
+                    <div className="card-label">
+                      Total spent ({period === "weekly" ? "this week" : "this month"})
+                    </div>
+                    <div className="card-value">
+                      {summaryLoading ? (
+                        <span style={{ opacity: 0.5 }}>Loading...</span>
+                      ) : totalSpent !== null ? (
+                        `₹${Number(totalSpent).toFixed(2)}`
+                      ) : (
+                        "–"
+                      )}
+                    </div>
+                    {effectiveSummary?.start && effectiveSummary?.end && (
+                      <div className="card-caption">
+                        {effectiveSummary.start} → {effectiveSummary.end}
+                      </div>
                     )}
+                  </div>
+
+                  <div className="card">
+                    <div className="card-label">Top category</div>
+                    <div className="card-value">
+                      {summaryLoading ? (
+                        <span style={{ opacity: 0.5 }}>Loading...</span>
+                      ) : topCategory ? (
+                        topCategory
+                      ) : (
+                        "No data"
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="card">
+                    <div className="card-label">Total expenses</div>
+                    <div className="card-value">
+                      {summaryLoading ? (
+                        <span style={{ opacity: 0.5 }}>Loading...</span>
+                      ) : effectiveSummary?.by_category ? (
+                        effectiveSummary.by_category.reduce((acc, cat) => acc + 1, 0)
+                      ) : (
+                        expenses.length
+                      )}
+                    </div>
+                    <div className="card-caption">
+                      {period === "weekly" ? "This week" : "This month"}
+                    </div>
                   </div>
                 </div>
 
-                <div className="card">
-                  <div className="card-label">Total expenses</div>
-                  <div className="card-value">
-                    {summaryLoading ? (
-                      <span style={{ opacity: 0.5 }}>Loading...</span>
-                    ) : effectiveSummary?.by_category ? (
-                      effectiveSummary.by_category.reduce(
-                        (acc, cat) => acc + 1,
-                        0
-                      )
-                    ) : (
-                      expenses.length
-                    )}
+                <div className="panel">
+                  <div className="panel-header">
+                    <h2 className="panel-title">Category breakdown</h2>
+                    <span className="panel-caption">Where your money goes</span>
                   </div>
-                  <div className="card-caption">
-                    {period === "weekly" ? "This week" : "This month"}
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <aside className="layout-side">
-              <div className="panel">
-                <div className="panel-header">
-                  <h2 className="panel-title">Category breakdown</h2>
-                  <span className="panel-caption">
-                    Where your money goes
-                  </span>
-                </div>
-                {effectiveSummary?.by_category &&
-                effectiveSummary.by_category.length > 0 &&
-                totalSpent ? (
-                  <>
-                    {/* Pie chart */}
-                    <div
-                      className="pie-chart"
-                      style={{
-                        backgroundImage: (() => {
-                          const colors = [
-                            "#22c55e",
-                            "#0ea5e9",
-                            "#a855f7",
-                            "#f97316",
-                            "#e11d48",
-                            "#facc15",
-                          ];
-                          let acc = 0;
-                          const segments =
-                            effectiveSummary.by_category.map((cat, i) => {
-                              const pct =
-                                (Number(cat.total) / Number(totalSpent)) * 100;
+                  {effectiveSummary?.by_category && effectiveSummary.by_category.length > 0 && totalSpent ? (
+                    <>
+                      <div
+                        className="pie-chart"
+                        style={{
+                          backgroundImage: (() => {
+                            const colors = ["#22c55e", "#0ea5e9", "#a855f7", "#f97316", "#e11d48", "#facc15"];
+                            let acc = 0;
+                            const segments = effectiveSummary.by_category.map((cat, i) => {
+                              const pct = (Number(cat.total) / Number(totalSpent)) * 100;
                               const start = acc;
                               const end = acc + pct;
                               acc = end;
                               const color = colors[i % colors.length];
                               return `${color} ${start}% ${end}%`;
                             });
-                          return `conic-gradient(${segments.join(",")})`;
-                        })(),
-                      }}
-                    />
-                    {/* Legend + bar breakdown */}
-                    <ul className="category-list">
-                      {effectiveSummary.by_category.map((cat, idx) => (
-                        <li key={cat.id ?? cat.name} className="category-item">
-                          <div className="category-main">
-                            <span className="category-name">
-                              <span
-                                className="pie-legend-dot"
-                                style={{
-                                  backgroundColor: [
-                                    "#22c55e",
-                                    "#0ea5e9",
-                                    "#a855f7",
-                                    "#f97316",
-                                    "#e11d48",
-                                    "#facc15",
-                                  ][idx % 6],
-                                }}
-                              />
-                              {cat.name}
-                            </span>
-                            <span className="category-amount">
-                              ₹{Number(cat.total).toFixed(2)}
-                            </span>
-                          </div>
-                          <div className="category-bar-row">
-                            <div className="category-bar-track">
-                              <div
-                                className="category-bar-fill"
-                                style={{
-                                  width: `${Math.min(
-                                    100,
-                                    (Number(cat.total) / Number(totalSpent)) *
-                                      100
-                                  ).toFixed(1)}%`,
-                                }}
-                              />
+                            return `conic-gradient(${segments.join(",")})`;
+                          })(),
+                        }}
+                      />
+                      <ul className="category-list">
+                        {effectiveSummary.by_category.map((cat, idx) => (
+                          <li key={cat.id ?? cat.name} className="category-item">
+                            <div className="category-main">
+                              <span className="category-name">
+                                <span
+                                  className="pie-legend-dot"
+                                  style={{
+                                    backgroundColor: ["#22c55e", "#0ea5e9", "#a855f7", "#f97316", "#e11d48", "#facc15"][idx % 6],
+                                  }}
+                                />
+                                {cat.name}
+                              </span>
+                              <span className="category-amount">₹{Number(cat.total).toFixed(2)}</span>
                             </div>
-                            <span className="category-percent">
-                              {(
-                                (Number(cat.total) / Number(totalSpent)) *
-                                100
-                              ).toFixed(1)}
-                              %
-                            </span>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                ) : (
-                  <p className="empty-state">No category data yet.</p>
-                )}
-              </div>
+                            <div className="category-bar-row">
+                              <div className="category-bar-track">
+                                <div
+                                  className="category-bar-fill"
+                                  style={{
+                                    width: `${Math.min(100, (Number(cat.total) / Number(totalSpent)) * 100).toFixed(1)}%`,
+                                  }}
+                                />
+                              </div>
+                              <span className="category-percent">
+                                {((Number(cat.total) / Number(totalSpent)) * 100).toFixed(1)}%
+                              </span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="empty-state">No category data yet.</p>
+                  )}
+                </div>
+              </section>
+            </>
+          )}
 
+          {activeTab === "expenses" && (
+            <section className="layout-full">
               <div className="panel">
                 <div className="panel-header">
-                  <h2 className="panel-title">AI insights</h2>
-                  <span className="panel-caption">
-                    Generated from your recent spending
-                  </span>
+                  <h2 className="panel-title">Expenses</h2>
+                  <span className="panel-caption">Detailed list of your transactions</span>
                 </div>
-                {loading ? (
-                  <div className="skeleton-block" />
-                ) : insightText ? (
-                  <div className="insight-text">{insightText}</div>
-                ) : (
-                  <p className="empty-state">
-                    Insights will appear here when there is enough data.
-                  </p>
-                )}
-              </div>
-            </aside>
-          </>
-        )}
 
-        {activeTab === "daily" && (
-          <section className="layout-full">
-            <div className="panel">
-              <div className="panel-header">
-                <h2 className="panel-title">Daily trends</h2>
-                <span className="panel-caption">
-                  Visual view of spending over time
-                </span>
-              </div>
-              {insights?.charts?.daily_trend &&
-              insights.charts.daily_trend.dates.length > 0 ? (
-                <div className="chart">
-                  <div className="chart-bars">
-                    {(() => {
-                      const trend = insights.charts.daily_trend;
-                      const max = Math.max(...trend.amounts, 1);
-                      return trend.dates.map((d, idx) => {
-                        const amount = trend.amounts[idx];
-                        const height = (amount / max) * 100;
-                        return (
-                          <div key={d + idx} className="chart-bar-wrapper">
-                            <div className="chart-bar-track">
-                              <div
-                                className="chart-bar-fill"
-                                style={{ height: `${height}%` }}
-                              />
-                            </div>
-                            <div className="chart-bar-x">
-                              {d.slice(5)}{/* show MM-DD */}
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
+                <div className="filters-row">
+                  <div className="field">
+                    <label className="field-label" htmlFor="start">From</label>
+                    <input
+                      id="start"
+                      name="start"
+                      type="date"
+                      value={filters.start}
+                      onChange={handleFilterChange}
+                      className="input"
+                    />
+                  </div>
+                  <div className="field">
+                    <label className="field-label" htmlFor="end">To</label>
+                    <input
+                      id="end"
+                      name="end"
+                      type="date"
+                      value={filters.end}
+                      onChange={handleFilterChange}
+                      className="input"
+                    />
+                  </div>
+                  <div className="field field-grow">
+                    <label className="field-label" htmlFor="search">Search description</label>
+                    <input
+                      id="search"
+                      name="search"
+                      type="text"
+                      placeholder="e.g. groceries, cab, rent..."
+                      value={filters.search}
+                      onChange={handleFilterChange}
+                      className="input"
+                    />
                   </div>
                 </div>
-              ) : (
-                <p className="empty-state">
-                  Not enough data yet to draw a trend.
-                </p>
-              )}
-            </div>
-          </section>
-        )}
 
-        {activeTab === "expenses" && (
-          <section className="layout-full">
-            <div className="panel">
-              <div className="panel-header">
-                <h2 className="panel-title">Expenses</h2>
-                <span className="panel-caption">
-                  Detailed list of your transactions
-                </span>
-              </div>
-
-              <div className="filters-row">
-                <div className="field">
-                  <label className="field-label" htmlFor="start">
-                    From
-                  </label>
-                  <input
-                    id="start"
-                    name="start"
-                    type="date"
-                    value={filters.start}
-                    onChange={handleFilterChange}
-                    className="input"
-                  />
-                </div>
-                <div className="field">
-                  <label className="field-label" htmlFor="end">
-                    To
-                  </label>
-                  <input
-                    id="end"
-                    name="end"
-                    type="date"
-                    value={filters.end}
-                    onChange={handleFilterChange}
-                    className="input"
-                  />
-                </div>
-                <div className="field field-grow">
-                  <label className="field-label" htmlFor="search">
-                    Search description
-                  </label>
-                  <input
-                    id="search"
-                    name="search"
-                    type="text"
-                    placeholder="e.g. groceries, cab, rent..."
-                    value={filters.search}
-                    onChange={handleFilterChange}
-                    className="input"
-                  />
-                </div>
-              </div>
-
-              {loading ? (
-                <div className="skeleton-table" />
-              ) : error ? (
-                <div className="alert alert-error">{error}</div>
-              ) : expenses.length === 0 ? (
-                <p className="empty-state">No expenses found for this view.</p>
-              ) : (
-                <div className="table-wrapper">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Description</th>
-                        <th>Category</th>
-                        <th className="text-right">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {expenses.map((expense) => (
-                        <tr key={expense.id}>
-                          <td>{expense.date || "–"}</td>
-                          <td>{expense.description || "No description"}</td>
-                          <td>
-                            {expense.category_name || "Uncategorized"}
-                          </td>
-                          <td className="text-right">
-                            ₹{Number(expense.amount).toFixed(2)}
-                          </td>
+                {loading ? (
+                  <div className="skeleton-table" />
+                ) : error ? (
+                  <div className="alert alert-error">{error}</div>
+                ) : expenses.length === 0 ? (
+                  <p className="empty-state">No expenses found for this view.</p>
+                ) : (
+                  <div className="table-wrapper">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Description</th>
+                          <th>Category</th>
+                          <th className="text-right">Amount</th>
+                          <th className="text-center">Actions</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                      </thead>
+                      <tbody>
+                        {expenses.map((expense) => (
+                          <tr key={expense.id} className="expense-row">
+                            <td>{expense.date || "–"}</td>
+                            <td>{expense.description || "No description"}</td>
+                            <td>{expense.category_name || "Uncategorized"}</td>
+                            <td className="text-right">₹{Number(expense.amount).toFixed(2)}</td>
+                            <td className="text-center">
+                              <button
+                                className="edit-btn"
+                                onClick={() => handleEditExpense(expense)}
+                                title="Edit expense"
+                              >
+                                <svg 
+                                  className="edit-icon" 
+                                  viewBox="0 0 24 24" 
+                                  fill="none" 
+                                  stroke="currentColor" 
+                                  strokeWidth="2"
+                                >
+                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                  <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                </svg>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+        </main>
+      </div>
+
+      {/* Floating Add Button - Moved outside .app container for true fixed positioning */}
+      <button
+        className="floating-add-btn"
+        onClick={() => setShowExpenseModal(true)}
+        title="Add new expense"
+      >
+        <span className="floating-btn-icon">+</span>
+        <span className="floating-btn-text">Add Expense</span>
+      </button>
+
+      {/* Expense Creation Modal */}
+      {showExpenseModal && (
+        <div className="modal-overlay" onClick={() => setShowExpenseModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">Add New Expense</h2>
+              <button className="modal-close" onClick={() => setShowExpenseModal(false)}>×</button>
             </div>
-          </section>
-        )}
-      </main>
+            
+            <form onSubmit={handleExpenseSubmit} className="expense-form">
+              <div className="form-row">
+                <div className="field">
+                  <label className="field-label" htmlFor="amount">Amount *</label>
+                  <input
+                    id="amount"
+                    name="amount"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="99999999.99"
+                    placeholder="0.00"
+                    value={expenseForm.amount}
+                    onChange={handleExpenseFormChange}
+                    className="input"
+                    required
+                  />
+                </div>
+                
+                <div className="field">
+                  <label className="field-label" htmlFor="date">Date</label>
+                  <input
+                    id="date"
+                    name="date"
+                    type="date"
+                    value={expenseForm.date}
+                    onChange={handleExpenseFormChange}
+                    className="input"
+                  />
+                </div>
+              </div>
+
+              <div className="field">
+                <label className="field-label" htmlFor="description">Description *</label>
+                <input
+                  id="description"
+                  name="description"
+                  type="text"
+                  placeholder="e.g. Groceries, Coffee, Taxi..."
+                  value={expenseForm.description}
+                  onChange={handleExpenseFormChange}
+                  className="input"
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label className="field-label" htmlFor="category">Category (Optional)</label>
+                <input
+                  id="category"
+                  name="category"
+                  type="text"
+                  placeholder="e.g. Food, Transport, Entertainment..."
+                  value={expenseForm.category}
+                  onChange={handleExpenseFormChange}
+                  className="input"
+                />
+              </div>
+
+              {error && <div className="alert alert-error">{error}</div>}
+
+              <div className="form-actions">
+                <button type="button" onClick={() => setShowExpenseModal(false)} className="btn btn-secondary" disabled={submitting}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting ? "Adding..." : "Add Expense"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Expense Modal */}
+      {showEditModal && (
+        <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">Edit Expense</h2>
+              <button className="modal-close" onClick={() => setShowEditModal(false)}>×</button>
+            </div>
+            
+            <form onSubmit={handleEditSubmit} className="expense-form">
+              <div className="form-row">
+                <div className="field">
+                  <label className="field-label" htmlFor="edit-amount">Amount *</label>
+                  <input
+                    id="edit-amount"
+                    name="amount"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    max="99999999.99"
+                    placeholder="0.00"
+                    value={editForm.amount}
+                    onChange={handleEditFormChange}
+                    className="input"
+                    required
+                  />
+                </div>
+                
+                <div className="field">
+                  <label className="field-label" htmlFor="edit-date">Date</label>
+                  <input
+                    id="edit-date"
+                    name="date"
+                    type="date"
+                    value={editForm.date}
+                    onChange={handleEditFormChange}
+                    className="input"
+                  />
+                </div>
+              </div>
+
+              <div className="field">
+                <label className="field-label" htmlFor="edit-description">Description *</label>
+                <input
+                  id="edit-description"
+                  name="description"
+                  type="text"
+                  placeholder="e.g. Groceries, Coffee, Taxi..."
+                  value={editForm.description}
+                  onChange={handleEditFormChange}
+                  className="input"
+                  required
+                />
+              </div>
+
+              <div className="field">
+                <label className="field-label" htmlFor="edit-category">Category</label>
+                <input
+                  id="edit-category"
+                  name="category"
+                  type="text"
+                  placeholder="e.g. Food, Transport, Entertainment..."
+                  value={editForm.category}
+                  onChange={handleEditFormChange}
+                  className="input"
+                />
+              </div>
+
+              {error && <div className="alert alert-error">{error}</div>}
+
+              <div className="form-actions">
+                <button 
+                  type="button" 
+                  onClick={handleDeleteExpense} 
+                  className="btn btn-danger" 
+                  disabled={submitting}
+                >
+                  {submitting ? "Deleting..." : "Delete"}
+                </button>
+                <div className="form-actions-right">
+                  <button type="button" onClick={() => setShowEditModal(false)} className="btn btn-secondary" disabled={submitting}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="btn btn-primary" disabled={submitting}>
+                    {submitting ? "Updating..." : "Update"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* User Settings Modal */}
+      {showUserModal && (
+        <div className="modal-overlay" onClick={() => setShowUserModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">User Settings</h2>
+              <button className="modal-close" onClick={() => setShowUserModal(false)}>×</button>
+            </div>
+            
+            <div className="user-settings-content">
+              <div className="user-info-section">
+                <div className="user-avatar">
+                  <svg className="avatar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                  </svg>
+                </div>
+                <div className="user-details">
+                  <h3 className="username">Guest User</h3>
+                  <p className="user-email">guest@expensetracker.com</p>
+                </div>
+              </div>
+
+              <div className="settings-section">
+                <h3 className="settings-title">Preferences</h3>
+                
+                <div className="setting-item">
+                  <label className="setting-label" htmlFor="month-start">Month Start Date</label>
+                  <select 
+                    id="month-start" 
+                    className="setting-input"
+                    defaultValue="1"
+                  >
+                    {Array.from({ length: 30 }, (_, i) => i + 1).map(day => (
+                      <option key={day} value={day}>{day}</option>
+                    ))}
+                  </select>
+                  <p className="setting-description">
+                    Choose which day of the month your budget cycle starts
+                  </p>
+                </div>
+
+                <div className="setting-item">
+                  <label className="setting-label" htmlFor="theme">Theme</label>
+                  <select 
+                    id="theme" 
+                    className="setting-input"
+                    value={theme}
+                    onChange={(e) => setTheme(e.target.value)}
+                  >
+                    <option value="dark">Dark Theme</option>
+                    <option value="light">Light Theme</option>
+                  </select>
+                  <p className="setting-description">
+                    Choose your preferred color scheme
+                  </p>
+                </div>
+              </div>
+
+              <div className="settings-actions">
+                <button 
+                  type="button" 
+                  onClick={() => setShowUserModal(false)} 
+                  className="btn btn-secondary"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

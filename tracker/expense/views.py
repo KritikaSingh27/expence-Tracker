@@ -8,6 +8,7 @@ from datetime import date, timedelta
 from django.db.models import Sum
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from django.contrib.auth.models import User
 
 from .helpers import get_custom_month_range
 
@@ -50,11 +51,10 @@ class TagViewSet(ModelViewSet):
 # ---- EXPENSE ----
 class ExpenseViewSet(ModelViewSet):
     serializer_class = ExpenseSerializer
-    permission_classes = [IsAuthenticated]
-    permission_classes = [AllowAny]
+    permission_classes = [AllowAny]  # Keep AllowAny for demo purposes
 
     def get_queryset(self):
-        # Base queryset: only current user's expenses
+        # Base queryset: all expenses (no user filtering for demo)
         queryset = Expense.objects.all()
 
         # GET parameters for filtering
@@ -79,7 +79,7 @@ class ExpenseViewSet(ModelViewSet):
         return queryset
 
     def perform_create(self, serializer):
-        # 1) Save the expense with the current user
+        # 1) Save the expense (user can be null for demo)
         expense = serializer.save()
 
         # 2) If there's no description, we can't guess a category
@@ -99,21 +99,86 @@ class ExpenseViewSet(ModelViewSet):
         if not cat_name:
             return
 
-        # 4) Find or create a Category with this name for this user
-        category = Category.objects.filter(
-            user=self.request.user,
-            name__iexact=cat_name.strip()
-        ).first()
+        # 4) Get user for category creation (use first user as fallback for demo)
+        user = self.request.user if self.request.user.is_authenticated else User.objects.first()
+        
+        if user:
+            category = Category.objects.filter(
+                user=user,
+                name__iexact=cat_name.strip()
+            ).first()
 
-        if category is None:
-            category = Category.objects.create(
-                user=self.request.user,
-                name=cat_name.strip()
-            )
+            if category is None:
+                category = Category.objects.create(
+                    user=user,
+                    name=cat_name.strip()
+                )
 
-        # 5) Attach the category to the expense
-        expense.category = category
-        expense.save(update_fields=["category"])
+            # 5) Attach the category to the expense
+            expense.category = category
+            expense.save(update_fields=["category"])
+
+    def perform_update(self, serializer):
+        # Handle expense updates - with proper category handling
+        print(f"Updating expense with data: {serializer.validated_data}")  # Debug log
+        try:
+            expense = serializer.save()
+            print(f"Updated expense: {expense}")  # Debug log
+            
+            # Get user for category creation (use first user as fallback for demo)
+            user = self.request.user if self.request.user.is_authenticated else User.objects.first()
+            
+            # Handle manual category assignment
+            category_name = self.request.data.get('category_name')
+            if category_name and category_name.strip() and user:
+                # User provided a category name, find or create it
+                category = Category.objects.filter(
+                    user=user,
+                    name__iexact=category_name.strip()
+                ).first()
+                
+                if not category:
+                    category = Category.objects.create(
+                        user=user,
+                        name=category_name.strip()
+                    )
+                
+                expense.category = category
+                expense.save(update_fields=["category"])
+                print(f"Assigned category: {category.name}")
+            elif not expense.description:
+                # If no manual category and no description, we can't suggest
+                print("No category assignment - no description or manual category")
+            else:
+                # No manual category provided, use AI suggestion
+                suggestion = suggest_category(
+                    description=expense.description,
+                    amount=float(expense.amount),
+                )
+
+                if suggestion and user:
+                    cat_name = suggestion.get("category")
+                    if cat_name:
+                        # Find or create a Category
+                        category = Category.objects.filter(
+                            user=user,
+                            name__iexact=cat_name.strip()
+                        ).first()
+
+                        if category is None:
+                            category = Category.objects.create(
+                                user=user,
+                                name=cat_name.strip()
+                            )
+
+                        # Attach the category to the expense
+                        expense.category = category
+                        expense.save(update_fields=["category"])
+                        print(f"AI suggested category: {category.name}")
+                
+        except Exception as e:
+            print(f"Error saving expense: {e}")  # Debug log
+            raise
 
 
     @action(detail=False, methods=["get"])
@@ -144,12 +209,14 @@ class ExpenseViewSet(ModelViewSet):
             start = ref_date - timedelta(days=ref_date.weekday())  # Monday
             end = start + timedelta(days=6)  # Sunday
         else:
-            # default: monthly using user's settings
-            try:
-                settings = userSetting.objects.get(user=request.user)
-                start_day = settings.month_start_date
-            except userSetting.DoesNotExist:
-                start_day = 1
+            # default: monthly using user's settings (or default if anonymous)
+            start_day = 1  # Default start day
+            if request.user.is_authenticated:
+                try:
+                    settings = userSetting.objects.get(user=request.user)
+                    start_day = settings.month_start_date
+                except userSetting.DoesNotExist:
+                    start_day = 1
 
             start, end = get_custom_month_range(ref_date, start_day)
 
@@ -217,11 +284,13 @@ class ExpenseViewSet(ModelViewSet):
             prev_end = start - timedelta(days=1)
         else:
             # monthly
-            try:
-                settings = userSetting.objects.get(user=request.user)
-                start_day = settings.month_start_date
-            except userSetting.DoesNotExist:
-                start_day = 1
+            start_day = 1  # Default start day
+            if request.user.is_authenticated:
+                try:
+                    settings = userSetting.objects.get(user=request.user)
+                    start_day = settings.month_start_date
+                except userSetting.DoesNotExist:
+                    start_day = 1
 
             start, end = get_custom_month_range(ref_date, start_day)
             # compute previous period by shifting back by period length
@@ -277,8 +346,14 @@ class ExpenseViewSet(ModelViewSet):
         # compute previous total across all expenses
         prev_total = Expense.objects.filter(date__gte=prev_start, date__lte=prev_end).aggregate(total=Sum("amount"))["total"] or 0
 
-        # ask AI
-        insight = generate_insights(summary, previous_total=float(prev_total))
+        # ask AI - with proper error handling
+        insight = None
+        try:
+            insight = generate_insights(summary, previous_total=float(prev_total))
+        except Exception as e:
+            print(f"AI insights generation failed: {e}")
+            # Don't fail the whole request, just return without insights
+            insight = None
 
         return Response({
             "summary": summary,
