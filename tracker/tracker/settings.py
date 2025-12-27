@@ -15,12 +15,14 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
+from corsheaders.defaults import default_headers
+
 load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
+load_dotenv(BASE_DIR / '.env')
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -36,6 +38,11 @@ ALLOWED_HOSTS = []
 #Gemini api key
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", None)  # None will disable AI features if no key
 
+#clerk api key
+CLERK_API_KEY = os.getenv('CLERK_SECRET_KEY')
+
+CLERK_JWT_PEM_PUBLIC_KEY = os.getenv('CLERK_JWT_PEM_PUBLIC_KEY').replace('\n', '\n')
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -47,11 +54,13 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'expense',
+    'clerk',
     'corsheaders',
 ]
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
+    'clerk.middleware.ClerkMiddleware',
 
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -137,3 +146,17 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    "authorization",
+]
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        # This tells Django to use the Clerk token we send in the header
+        'clerk.middleware.ClerkAuthentication', 
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}

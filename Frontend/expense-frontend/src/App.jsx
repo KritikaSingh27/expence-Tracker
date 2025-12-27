@@ -2,11 +2,34 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import "./App.css";
 import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/clerk-react";
+import { useAuth } from "@clerk/clerk-react";
 
 // Base API URL
 const API_BASE = "http://127.0.0.1:8000/api";
 
 function App() {
+  const { getToken, isLoaded, isSignedIn } = useAuth();
+
+  axios.interceptors.request.use(
+    async (config) => {
+      try {
+        const token = await getToken();
+        if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+          // console.log("Token attached to request:", config.url); // For debugging
+        } else {
+          console.warn("No token found for request:", config.url);
+        }
+      } catch (error) {
+        console.error("Error in Axios Interceptor:", error);
+      }
+      return config;
+    },
+    (error) => {
+      return Promise.reject(error);
+    }
+  );
+
   const [expenses, setExpenses] = useState([]);
   const [summary, setSummary] = useState(null);
   const [insights, setInsights] = useState(null);
@@ -21,7 +44,7 @@ function App() {
     end: "",
     search: "",
   });
-
+  
   // Expense form modal state
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expenseForm, setExpenseForm] = useState({
@@ -50,6 +73,7 @@ function App() {
 
   // Load expenses list filtered by current period
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
     const fetchExpenses = async () => {
       try {
         setLoading(true);
@@ -95,7 +119,7 @@ function App() {
     };
 
     fetchExpenses();
-  }, [filters.start, filters.end, filters.search, period]);
+  }, [isLoaded, isSignedIn, filters.start, filters.end, filters.search, period]);
 
   // Load summary + insights for the selected period
   useEffect(() => {
@@ -335,6 +359,8 @@ function App() {
   const insightText = typeof insights?.insight === "string"
       ? insights.insight
       : insights?.insight?.text || null;
+
+ if (!isLoaded) return <div className="loading">Loading Auth...</div>;
 
 return (
     <div className={theme === "light" ? "light-theme" : ""}>

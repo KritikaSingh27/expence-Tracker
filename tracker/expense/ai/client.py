@@ -1,17 +1,25 @@
 import json
 import re
-import google.generativeai as genai
+import os
+from google import genai
+from google.genai import types
 from django.conf import settings
 from .prompts import CATEGORY_PROMPT, INSIGHT_PROMPT
 
 # Configure API key if available
-try:
-    if hasattr(settings, 'GOOGLE_API_KEY') and settings.GOOGLE_API_KEY:
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
-    else:
-        print("Warning: GOOGLE_API_KEY not configured. AI features will be disabled.")
-except Exception as e:
-    print(f"Warning: Failed to configure Google AI: {e}")
+api_key = os.getenv("GEMINI_API_KEY")
+
+if api_key:
+    try:
+        # We create a 'client' variable that you will use for all AI calls
+        client = genai.Client(api_key=api_key)
+        print("Success: Google AI Client configured.")
+    except Exception as e:
+        print(f"Warning: Failed to initialize Google AI Client: {e}")
+        client = None
+else:
+    print("Warning: GEMINI_API_KEY not found in .env. AI features will be disabled.")
+    client = None
 
 
 def _safe_load_json(text: str):
@@ -41,14 +49,14 @@ def _safe_load_json(text: str):
     raise json.JSONDecodeError("Could not decode JSON", text, 0)
 
 
-def suggest_category(description: str, amount: float, model_name: str = "models/gemini-2.5-flash"):
+def suggest_category(description: str, amount: float, model_name: str = "models/gemini-2.0-flash"):
     # Ask Gemini to suggest a category. Returns {"category": "<name>"} or None.
     
     if not description:
         return None
 
     # Check if API key is configured
-    if not hasattr(settings, 'GOOGLE_API_KEY') or not settings.GOOGLE_API_KEY:
+    if not client:
         print("AI: GOOGLE_API_KEY not configured, skipping category suggestion.")
         return None
 
@@ -58,41 +66,23 @@ def suggest_category(description: str, amount: float, model_name: str = "models/
     )
 
     try:
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            )
+        )
 
-        # Extract text from response safely
-        text = getattr(response, "text", None)
-        if text is None:
-            text = str(response)
-        text = text.strip()
-
-        # Debug output (watch your terminal)
+        text = response.text
+        
         print("=== Gemini raw response ===")
         print(text)
         print("=== end raw response ===")
 
-        # Try to parse JSON (direct or embedded)
-        try:
-            data = _safe_load_json(text)
-        except json.JSONDecodeError:
-            print("AI: failed to parse JSON from model response.")
-            return None
+        data = json.loads(text)
 
-        # Defensive extraction of category
-        category = None
-        if isinstance(data, dict):
-            # common key names to try
-            for key in ("category", "Category", "result"):
-                if key in data and isinstance(data[key], str) and data[key].strip():
-                    category = data[key].strip()
-                    break
-
-            # nested case: {"result": {"category": "Food"}}
-            if category is None and "result" in data and isinstance(data["result"], dict):
-                nested = data["result"].get("category") or data["result"].get("Category")
-                if isinstance(nested, str) and nested.strip():
-                    category = nested.strip()
+        category = data.get("category") or data.get("Category")
 
         if category:
             return {"category": category}
@@ -105,20 +95,14 @@ def suggest_category(description: str, amount: float, model_name: str = "models/
         return None
 
 def generate_insights(summary: dict, previous_total: float | None = None, model_name: str = "models/gemini-2.5-flash"):
-    """
-    summary: dict with keys: period, start, end, total, by_category (list of {id,name,total})
-    previous_total: numeric or None
-    returns: {"text": "..."} or None
-    Defensive: returns None if input is invalid or model output can't be parsed.
-    """
     # Defensive input check
     if not isinstance(summary, dict):
         print("generate_insights: invalid 'summary' input (not a dict).")
         return None
 
     # Check if API key is configured
-    if not hasattr(settings, 'GOOGLE_API_KEY') or not settings.GOOGLE_API_KEY:
-        print("AI: GOOGLE_API_KEY not configured, skipping insights generation.")
+    if not client:
+        print("AI: Client not configured, skipping insights generation.")
         return None
 
     # ensure by_category is JSON serializable
@@ -138,13 +122,14 @@ def generate_insights(summary: dict, previous_total: float | None = None, model_
     )
 
     try:
-        model = genai.GenerativeModel(model_name)
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt
+        )
 
-        text = getattr(response, "text", None)
-        if text is None:
-            text = str(response)
-        text = text.strip()
+        text = response.text
+        if text:
+            text = text.strip()
 
         print("=== Gemini insight raw response ===")
         print(text)
@@ -155,7 +140,6 @@ def generate_insights(summary: dict, previous_total: float | None = None, model_
             data = _safe_load_json(text)
         except json.JSONDecodeError:
             # If model returned plain text instead of JSON, wrap it into {"text": "<text>"}
-            # We accept that as a valid fallback.
             return {"text": text}
 
         # If data is a dict and contains "text" key, return it

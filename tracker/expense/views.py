@@ -1,17 +1,19 @@
-
 from rest_framework.viewsets import ModelViewSet
+from rest_framework import permissions
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.permissions import AllowAny
 
 from datetime import date, timedelta
 
 from django.db.models import Sum
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.contrib.auth.models import User
 
 from .helpers import get_custom_month_range
 
+from django.db.models import Sum
+from datetime import date, timedelta
+from .models import Expense, Category, userSetting  # Ensure these are imported
+from .serializers import ExpenseSerializer
 
 from .models import Category, Tag, Expense, userSetting
 from .serializers import (
@@ -30,10 +32,20 @@ class CategoryViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Category.objects.filter(user=self.request.user)
+        user_obj = getattr(self.request, 'clerk_user', None)
+        if user_obj:
+            clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+        else:
+            return Response({"error": "No user found"}, status=401)
+        return Category.objects.filter(user_id = clerk_id)
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        user_obj = getattr(self.request, 'clerk_user', None)
+        if user_obj:
+            clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+        else:
+            return Response({"error": "No user found"}, status=401)
+        serializer.save(user_id = clerk_id)
 
 
 # ---- TAG ----
@@ -42,20 +54,35 @@ class TagViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return Tag.objects.filter(user=self.request.user)
+        user_obj = getattr(self.request, 'clerk_user', None)
+        if user_obj:
+            clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+        else:
+            return Response({"error": "No user found"}, status=401)
+        return Tag.objects.filter(user_id = clerk_id)
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        user_obj = getattr(self.request, 'clerk_user', None)
+        if user_obj:
+            clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+        else:
+            return Response({"error": "No user found"}, status=401)
+        serializer.save(user_id = clerk_id)
 
 
 # ---- EXPENSE ----
 class ExpenseViewSet(ModelViewSet):
     serializer_class = ExpenseSerializer
-    permission_classes = [AllowAny]  # Keep AllowAny for demo purposes
+    # Permission is now handled by Clerk Middleware + IsAuthenticated
+    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # Base queryset: all expenses (no user filtering for demo)
-        queryset = Expense.objects.all()
+        user_obj = getattr(self.request, 'clerk_user', None)
+        if user_obj:
+            clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+        else:
+            return Response({"error": "No user found"}, status=401)
+        queryset = Expense.objects.filter(user_id= clerk_id)
 
         # GET parameters for filtering
         start = self.request.query_params.get("start")
@@ -73,300 +100,199 @@ class ExpenseViewSet(ModelViewSet):
         if tag:
             queryset = queryset.filter(tag__id=tag)
         if search:
-            # search within the description text
             queryset = queryset.filter(description__icontains=search)
 
         return queryset
 
     def perform_create(self, serializer):
-        # 1) Save the expense (user can be null for demo)
-        expense = serializer.save()
+        user_obj = getattr(self.request, 'clerk_user', None)
 
-        # 2) If there's no description, we can't guess a category
+        if not user_obj or not hasattr(user_obj, 'id'):
+            from rest_framework.exceptions import NotAuthenticated
+            raise NotAuthenticated("User identification failed. Please sign in again.")
+    
+        clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+    
+        # Save the expense with the Clerk user ID
+        expense = serializer.save(user_id=clerk_id)
+
         if not expense.description:
             return
 
-        # 3) Ask Gemini for a category suggestion
+        # Ask Gemini
         suggestion = suggest_category(
             description=expense.description,
             amount=float(expense.amount),
         )
 
-        if not suggestion:
-            return
-
-        cat_name = suggestion.get("category")
-        if not cat_name:
-            return
-
-        # 4) Get user for category creation (use first user as fallback for demo)
-        user = self.request.user if self.request.user.is_authenticated else User.objects.first()
-        
-        if user:
-            category = Category.objects.filter(
-                user=user,
-                name__iexact=cat_name.strip()
-            ).first()
-
-            if category is None:
-                category = Category.objects.create(
-                    user=user,
+        # Extract and Save properly
+        if suggestion and isinstance(suggestion, dict):
+            cat_name = suggestion.get("category")
+            if cat_name:
+                # Create/Get the Category object
+                category_obj, created = Category.objects.get_or_create(
+                    user_id=clerk_id,
                     name=cat_name.strip()
                 )
-
-            # 5) Attach the category to the expense
-            expense.category = category
-            expense.save(update_fields=["category"])
+                
+                # Update the expense with BOTH the link and the name string
+                expense.category = category_obj
+                expense.category_name = cat_name.strip()
+                expense.save()
+                print(f"DEBUG: AI categorized '{expense.description}' as '{cat_name}'")
 
     def perform_update(self, serializer):
-        # Handle expense updates - with proper category handling
-        print(f"Updating expense with data: {serializer.validated_data}")  # Debug log
+        user_obj = getattr(self.request, 'clerk_user', None)
+        if user_obj:
+            clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+        else:
+            return Response({"error": "No user found"}, status=401)
         try:
             expense = serializer.save()
-            print(f"Updated expense: {expense}")  # Debug log
-            
-            # Get user for category creation (use first user as fallback for demo)
-            user = self.request.user if self.request.user.is_authenticated else User.objects.first()
             
             # Handle manual category assignment
             category_name = self.request.data.get('category_name')
-            if category_name and category_name.strip() and user:
-                # User provided a category name, find or create it
-                category = Category.objects.filter(
-                    user=user,
-                    name__iexact=category_name.strip()
-                ).first()
-                
-                if not category:
-                    category = Category.objects.create(
-                        user=user,
-                        name=category_name.strip()
-                    )
-                
+            if category_name and category_name.strip():
+                category, created = Category.objects.get_or_create(
+                    user_id=clerk_id,
+                    name=category_name.strip()
+                )
                 expense.category = category
                 expense.save(update_fields=["category"])
-                print(f"Assigned category: {category.name}")
-            elif not expense.description:
-                # If no manual category and no description, we can't suggest
-                print("No category assignment - no description or manual category")
-            else:
-                # No manual category provided, use AI suggestion
+            
+            elif expense.description:
+                # AI Suggestion if no manual category
                 suggestion = suggest_category(
                     description=expense.description,
                     amount=float(expense.amount),
                 )
-
-                if suggestion and user:
+                if suggestion:
                     cat_name = suggestion.get("category")
                     if cat_name:
-                        # Find or create a Category
-                        category = Category.objects.filter(
-                            user=user,
-                            name__iexact=cat_name.strip()
-                        ).first()
-
-                        if category is None:
-                            category = Category.objects.create(
-                                user=user,
-                                name=cat_name.strip()
-                            )
-
-                        # Attach the category to the expense
+                        category, created = Category.objects.get_or_create(
+                            user_id=clerk_id,
+                            name=cat_name.strip()
+                        )
                         expense.category = category
                         expense.save(update_fields=["category"])
-                        print(f"AI suggested category: {category.name}")
-                
         except Exception as e:
-            print(f"Error saving expense: {e}")  # Debug log
+            print(f"Error updating expense: {e}")
             raise
-
 
     @action(detail=False, methods=["get"])
     def summary(self, request):
-        # Return total expense for a given period (weekly or monthly).
-
-        period = request.query_params.get("period", "monthly")  # "weekly" or "monthly"
-        today_str = request.query_params.get("date")  # optional: YYYY-MM-DD
+        user_obj = getattr(self.request, 'clerk_user', None)
+        if user_obj:
+            clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+        else:
+            return Response({"error": "No user found"}, status=401)
+        period = request.query_params.get("period", "monthly")
+        today_str = request.query_params.get("date")
 
         if today_str:
             try:
-                year, month, day = map(int, today_str.split("-"))
-                ref_date = date(year, month, day)
+                ref_date = date.fromisoformat(today_str)
             except ValueError:
-                return Response(
-                    {"detail": "Invalid date format. Use YYYY-MM-DD."},
-                    status=400,
-                )
+                return Response({"detail": "Invalid date format."}, status=400)
         else:
             ref_date = date.today()
 
-        # base queryset: all expenses (no auth needed in this demo setup)
-        qs = Expense.objects.all()
+        qs = Expense.objects.filter(user_id=clerk_id)
 
-        # determine date range
         if period == "weekly":
-            # Monday to Sunday week
-            start = ref_date - timedelta(days=ref_date.weekday())  # Monday
-            end = start + timedelta(days=6)  # Sunday
+            start = ref_date - timedelta(days=ref_date.weekday())
+            end = start + timedelta(days=6)
         else:
-            # default: monthly using user's settings (or default if anonymous)
-            start_day = 1  # Default start day
-            if request.user.is_authenticated:
-                try:
-                    settings = userSetting.objects.get(user=request.user)
-                    start_day = settings.month_start_date
-                except userSetting.DoesNotExist:
-                    start_day = 1
-
+            # Monthly using user's specific settings stored by clerk_id
+            start_day = 1
+            try:
+                settings = userSetting.objects.get(user_id=clerk_id)
+                start_day = settings.month_start_date
+            except userSetting.DoesNotExist:
+                start_day = 1
             start, end = get_custom_month_range(ref_date, start_day)
 
-        # filter expenses
         qs = qs.filter(date__gte=start, date__lte=end)
-
-        # total amount
         total = qs.aggregate(total=Sum("amount"))["total"] or 0
 
-        # ---- category-wise totals ----
         grouped = (
             qs.values("category__id", "category__name")
               .annotate(total=Sum("amount"))
               .order_by("-total")
         )
 
-        by_category = []
-        for row in grouped:
-            cat_id = row["category__id"]       # can be None
-            cat_name = row["category__name"]   # can be None
-            if cat_name is None:
-                cat_name = "Uncategorized"
-            by_category.append({
-                "id": cat_id,
-                "name": cat_name,
+        by_category = [
+            {
+                "id": row["category__id"],
+                "name": row["category__name"] or "Uncategorized",
                 "total": row["total"],
-            })
+            } for row in grouped
+        ]
 
-        data = {
-            "period": period,
-            "start": start,
-            "end": end,
-            "total": total,
-            "by_category": by_category,
-        }
-        return Response(data)
-    
+        return Response({
+            "period": period, "start": start, "end": end,
+            "total": total, "by_category": by_category,
+        })
+
     @action(detail=False, methods=["get"])
     def insights(self, request):
-
-        # Compute the same summary as summary() then call generate_insights() and return both summary and insight text.
-        
+        user_obj = getattr(self.request, 'clerk_user', None)
+        if user_obj:
+            clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+        else:
+            return Response({"error": "No user found"}, status=401)
         period = request.query_params.get("period", "monthly")
         today_str = request.query_params.get("date")
 
-        # parse date if provided, else use today
-        if today_str:
-            try:
-                year, month, day = map(int, today_str.split("-"))
-                ref_date = date(year, month, day)
-            except ValueError:
-                return Response({"detail": "Invalid date format. Use YYYY-MM-DD."}, status=400)
-        else:
-            ref_date = date.today()
+        ref_date = date.fromisoformat(today_str) if today_str else date.today()
+        qs = Expense.objects.filter(user_id=clerk_id)
 
-        # base queryset: all expenses (no auth needed in this demo setup)
-        qs = Expense.objects.all()
-
-        # determine date range
+        # Date range logic
         if period == "weekly":
             start = ref_date - timedelta(days=ref_date.weekday())
             end = start + timedelta(days=6)
-            # previous period:
-            prev_start = start - timedelta(days=7)
-            prev_end = start - timedelta(days=1)
+            prev_start, prev_end = start - timedelta(days=7), start - timedelta(days=1)
         else:
-            # monthly
-            start_day = 1  # Default start day
-            if request.user.is_authenticated:
-                try:
-                    settings = userSetting.objects.get(user=request.user)
-                    start_day = settings.month_start_date
-                except userSetting.DoesNotExist:
-                    start_day = 1
-
+            start_day = 1
+            try:
+                settings = userSetting.objects.get(user_id=clerk_id)
+                start_day = settings.month_start_date
+            except userSetting.DoesNotExist:
+                start_day = 1
             start, end = get_custom_month_range(ref_date, start_day)
-            # compute previous period by shifting back by period length
             period_len = (end - start).days + 1
-            prev_start = start - timedelta(days=period_len)
-            prev_end = start - timedelta(days=1)
+            prev_start, prev_end = start - timedelta(days=period_len), start - timedelta(days=1)
 
-        # filter expenses in this range
         qs_period = qs.filter(date__gte=start, date__lte=end)
         total = qs_period.aggregate(total=Sum("amount"))["total"] or 0
 
-        # group by category
         grouped = (
             qs_period.values("category__id", "category__name")
                      .annotate(total=Sum("amount"))
                      .order_by("-total")
         )
-        by_category = []
-        for row in grouped:
-            cat_name = row.get("category__name") or "Uncategorized"
-            by_category.append({"id": row.get("category__id"), "name": cat_name, "total": row.get("total")})
+        by_category = [{"id": r["category__id"], "name": r["category__name"] or "Uncategorized", "total": r["total"]} for r in grouped]
 
-        category_chart = {
-            "labels": [c["name"] for c in by_category],
-            "values": [c["total"] for c in by_category],
-        }
+        # AI Prep
+        summary = {"period": period, "start": start, "end": end, "total": float(total), "by_category": by_category}
+        prev_total = qs.filter(date__gte=prev_start, date__lte=prev_end).aggregate(total=Sum("amount"))["total"] or 0
 
-        daily_qs = (
-            qs_period
-            .values("date")
-            .annotate(total=Sum("amount"))
-            .order_by("date")
-        )
-
-        daily_trend = {
-            "dates": [str(row["date"]) for row in daily_qs if row["date"]],
-            "amounts": [float(row["total"]) for row in daily_qs if row["date"]],
-        }
-
-        summary_cards = {
-            "total_spent": float(total),
-            "top_category": by_category[0]["name"] if by_category else None,
-        }
-
-        summary = {
-            "period": period,
-            "start": start,
-            "end": end,
-            "total": float(total),
-            "by_category": by_category,
-        }
-
-        # compute previous total across all expenses
-        prev_total = Expense.objects.filter(date__gte=prev_start, date__lte=prev_end).aggregate(total=Sum("amount"))["total"] or 0
-
-        # ask AI - with proper error handling
         insight = None
         try:
             insight = generate_insights(summary, previous_total=float(prev_total))
         except Exception as e:
-            print(f"AI insights generation failed: {e}")
-            # Don't fail the whole request, just return without insights
-            insight = None
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                print("AI Rate limit hit. Using fallback message.")
+                insight = "AI Insights are temporarily unavailable due to high demand. Please try again in an hour."
+            else:
+                print(f"AI Error: {e}")
+                insight = "Analysis currently unavailable."
 
         return Response({
             "summary": summary,
-            "charts": {
-                "category_breakdown": category_chart,
-                "daily_trend": daily_trend,
-            },
-            "cards": summary_cards,
+            "cards": {"total_spent": float(total), "top_category": by_category[0]["name"] if by_category else None},
             "insight": insight,
         })
-
-
-
 
 # ---- USER SETTINGS ----
 class UserSettingsViewSet(ModelViewSet):
@@ -375,11 +301,21 @@ class UserSettingsViewSet(ModelViewSet):
 
     def get_queryset(self):
         # Always return settings only for current user
-        return userSetting.objects.filter(user=self.request.user)
-
+        user_obj = getattr(self.request, 'clerk_user', None)
+        if user_obj:
+            clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+        else:
+            return Response({"error": "No user found"}, status=401)
+        return userSetting.objects.filter(user_id=clerk_id)
+    
     def perform_create(self, serializer):
+        user_obj = getattr(self.request, 'clerk_user', None)
+        if user_obj:
+            clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+        else:
+            return Response({"error": "No user found"}, status=401)
         # If settings already exist, don't let user create a second one
-        if userSetting.objects.filter(user=self.request.user).exists():
+        if userSetting.objects.filter(user_id=clerk_id).exists():
             raise ValueError("Settings already exist for this user.")
 
-        serializer.save(user=self.request.user)
+        serializer.save(user_id=clerk_id)

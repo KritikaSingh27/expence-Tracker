@@ -1,24 +1,29 @@
 from django.db import models
-from django.contrib.auth.models import User
 
 # Create your models here.
 class Category(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user_id = models.CharField(max_length=255)
     name = models.CharField(max_length=50)
 
+    class Meta:
+        unique_together = ('user_id', 'name')
+
     def __str__(self):
-        return self.name
+        return f"{self.name} ({self.user_id})"
     
 class Tag(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user_id = models.CharField(max_length=255)
     name = models.CharField(max_length=50)
+
+    class Meta:
+        unique_together = ('user_id', 'name')
 
     def __str__(self):
         return self.name
 
 class Expense(models.Model):
     # In this setup we allow user to be null so API can be used without auth
-    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    user_id = models.CharField(max_length=255)
     amount = models.DecimalField(decimal_places=2, max_digits=10)
     description = models.TextField(null=True, blank= True)
     date = models.DateField(null=True, blank=True)
@@ -35,8 +40,9 @@ class Expense(models.Model):
         return f"{self.description or 'Expense'} - {self.amount}"
 
 class userSetting(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    user_id = models.CharField(max_length=255, unique=True, db_index=True)
     month_start_date = models.PositiveIntegerField(default= 1)
+    theme = models.CharField(max_length=20, default="dark")
 
     def __str__(self):
-        return f"Settings for {self.user.username}"
+        return f"Settings for {self.user_id}"
