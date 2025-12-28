@@ -186,8 +186,13 @@ class ExpenseViewSet(ModelViewSet):
             clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
         else:
             return Response({"error": "No user found"}, status=401)
+        
         period = request.query_params.get("period", "monthly")
         today_str = request.query_params.get("date")
+        
+        # Check for explicit start and end parameters for dynamic range
+        start_param = request.query_params.get("start")
+        end_param = request.query_params.get("end")
 
         if today_str:
             try:
@@ -199,7 +204,18 @@ class ExpenseViewSet(ModelViewSet):
 
         qs = Expense.objects.filter(user_id=clerk_id)
 
-        if period == "weekly":
+        # Dynamic range logic: use explicit start/end if provided, otherwise use period logic
+        if start_param and end_param:
+            try:
+                start = date.fromisoformat(start_param)
+                end = date.fromisoformat(end_param)
+            except ValueError:
+                return Response({"detail": "Invalid date format for start/end."}, status=400)
+        elif period == "all":
+            # Return data for user's entire history
+            start = None
+            end = None
+        elif period == "weekly":
             start = ref_date - timedelta(days=ref_date.weekday())
             end = start + timedelta(days=6)
         else:
@@ -212,7 +228,10 @@ class ExpenseViewSet(ModelViewSet):
                 start_day = 1
             start, end = get_custom_month_range(ref_date, start_day)
 
-        qs = qs.filter(date__gte=start, date__lte=end)
+        # Apply date filtering only if start and end are defined
+        if start and end:
+            qs = qs.filter(date__gte=start, date__lte=end)
+        
         total = qs.aggregate(total=Sum("amount"))["total"] or 0
 
         grouped = (
@@ -230,8 +249,11 @@ class ExpenseViewSet(ModelViewSet):
         ]
 
         return Response({
-            "period": period, "start": start, "end": end,
-            "total": total, "by_category": by_category,
+            "period": period, 
+            "start": start.isoformat() if start else None, 
+            "end": end.isoformat() if end else None,
+            "total": total, 
+            "by_category": by_category,
         })
 
     @action(detail=False, methods=["get"])
@@ -241,18 +263,46 @@ class ExpenseViewSet(ModelViewSet):
             clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
         else:
             return Response({"error": "No user found"}, status=401)
+        
         period = request.query_params.get("period", "monthly")
         today_str = request.query_params.get("date")
+        
+        # Check for explicit start and end parameters for dynamic range
+        start_param = request.query_params.get("start")
+        end_param = request.query_params.get("end")
 
-        ref_date = date.fromisoformat(today_str) if today_str else date.today()
+        if today_str:
+            try:
+                ref_date = date.fromisoformat(today_str)
+            except ValueError:
+                return Response({"detail": "Invalid date format."}, status=400)
+        else:
+            ref_date = date.today()
+
         qs = Expense.objects.filter(user_id=clerk_id)
 
-        # Date range logic
-        if period == "weekly":
+        # Dynamic range logic: use explicit start/end if provided, otherwise use period logic
+        if start_param and end_param:
+            try:
+                start = date.fromisoformat(start_param)
+                end = date.fromisoformat(end_param)
+                # For explicit date ranges, calculate previous period of same length
+                period_len = (end - start).days + 1
+                prev_start, prev_end = start - timedelta(days=period_len), start - timedelta(days=1)
+            except ValueError:
+                return Response({"detail": "Invalid date format for start/end."}, status=400)
+        elif period == "all":
+            # For "all time", use entire user history and no previous period comparison
+            start = None
+            end = None
+            prev_start = None
+            prev_end = None
+        elif period == "weekly":
             start = ref_date - timedelta(days=ref_date.weekday())
             end = start + timedelta(days=6)
             prev_start, prev_end = start - timedelta(days=7), start - timedelta(days=1)
         else:
+            # Monthly using user's specific settings stored by clerk_id
             start_day = 1
             try:
                 settings = userSetting.objects.get(user_id=clerk_id)
@@ -263,7 +313,13 @@ class ExpenseViewSet(ModelViewSet):
             period_len = (end - start).days + 1
             prev_start, prev_end = start - timedelta(days=period_len), start - timedelta(days=1)
 
-        qs_period = qs.filter(date__gte=start, date__lte=end)
+        # Apply date filtering only if start and end are defined
+        if start and end:
+            qs_period = qs.filter(date__gte=start, date__lte=end)
+        else:
+            # For "all time", use entire queryset
+            qs_period = qs
+            
         total = qs_period.aggregate(total=Sum("amount"))["total"] or 0
 
         grouped = (
@@ -274,12 +330,27 @@ class ExpenseViewSet(ModelViewSet):
         by_category = [{"id": r["category__id"], "name": r["category__name"] or "Uncategorized", "total": r["total"]} for r in grouped]
 
         # AI Prep
-        summary = {"period": period, "start": start, "end": end, "total": float(total), "by_category": by_category}
-        prev_total = qs.filter(date__gte=prev_start, date__lte=prev_end).aggregate(total=Sum("amount"))["total"] or 0
+        summary = {
+            "period": period, 
+            "start": start.isoformat() if start else None, 
+            "end": end.isoformat() if end else None, 
+            "total": float(total), 
+            "by_category": by_category
+        }
+        
+        # Calculate previous period total only if we have previous period dates
+        if prev_start and prev_end:
+            prev_total = qs.filter(date__gte=prev_start, date__lte=prev_end).aggregate(total=Sum("amount"))["total"] or 0
+        else:
+            prev_total = 0
 
         insight = None
         try:
             insight = generate_insights(summary, previous_total=float(prev_total))
+            if isinstance(insight, dict) and "text" in insight:
+                insight_text = insight["text"]
+            else:
+                insight_text = "Analysis is being prepared. Check back shortly!"
         except Exception as e:
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
                 print("AI Rate limit hit. Using fallback message.")

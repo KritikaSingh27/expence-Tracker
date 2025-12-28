@@ -39,6 +39,8 @@ function App() {
 
   const [period, setPeriod] = useState("monthly");
   const [activeTab, setActiveTab] = useState("overview");
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1); // 1-12
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [filters, setFilters] = useState({
     start: "",
     end: "",
@@ -124,22 +126,42 @@ function App() {
   // Load summary + insights for the selected period
   useEffect(() => {
     const fetchSummaryAndInsights = async () => {
+      const lastFetch = localStorage.getItem('lastAIRequest');
+      const now = Date.now();
+      // Wait between AI calls to save quota
+      if (lastFetch && (now - lastFetch < 120000)) {
+        console.log("AI request blocked by local throttle to save quota.");
+        return; 
+      }
+
       try {
         setSummaryLoading(true);
         setSummary(null);
         setInsights(null);
         
+        // Prepare parameters for API calls
+        let apiParams = { period };
+        
+        // If we have explicit start/end dates from filters, use them
+        if (filters.start && filters.end) {
+          apiParams.start = filters.start;
+          apiParams.end = filters.end;
+        }
+        
         const [summaryRes, insightsRes] = await Promise.all([
           axios.get(`${API_BASE}/expenses/summary/`, {
-            params: { period },
+            params: apiParams,
           }),
           axios.get(`${API_BASE}/expenses/insights/`, {
-            params: { period },
+            params: apiParams,
           }),
         ]);
 
         setSummary(summaryRes.data || null);
         setInsights(insightsRes.data || null);
+
+        localStorage.setItem('lastAIRequest', Date.now());
+
       } catch (err) {
         console.error("Error fetching summary/insights:", err);
       } finally {
@@ -147,12 +169,60 @@ function App() {
       }
     };
 
-    fetchSummaryAndInsights();
-  }, [period]);
+    if (isLoaded && isSignedIn) {
+       fetchSummaryAndInsights();
+    }
+  }, [period, selectedMonth, selectedYear, filters.start, filters.end, isLoaded, isSignedIn]);
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters((prev) => ({ ...prev, [name]: value }));
+  };
+
+  // Handle month picker change for dashboard
+  const handleMonthChange = (month, year) => {
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1;
+    
+    // If switching to current year and selected month is in the future, adjust to current month
+    if (year === currentYear && month > currentMonth) {
+      month = currentMonth;
+    }
+    
+    setSelectedMonth(month);
+    setSelectedYear(year);
+    setPeriod("monthly");
+    
+    // Calculate first and last day of selected month/year
+    const firstDay = new Date(year, month - 1, 1);
+    const lastDay = new Date(year, month, 0);
+    
+    setFilters(prev => ({
+      ...prev,
+      start: firstDay.toISOString().split('T')[0],
+      end: lastDay.toISOString().split('T')[0]
+    }));
+  };
+
+  // Handle "All Time" button click
+  const handleAllTimeClick = () => {
+    if (period === "all") {
+      // If already on "all time", switch back to monthly
+      setPeriod("monthly");
+      setFilters(prev => ({
+        ...prev,
+        start: "",
+        end: ""
+      }));
+    } else {
+      // Switch to "all time"
+      setPeriod("all");
+      setFilters(prev => ({
+        ...prev,
+        start: "",
+        end: ""
+      }));
+    }
   };
 
   // Handle expense form changes
@@ -323,8 +393,17 @@ function App() {
 
       // Refresh summary and insights with error handling
       try {
+        // Prepare parameters for API calls
+        let apiParams = { period };
+        
+        // If we have explicit start/end dates from filters, use them
+        if (filters.start && filters.end) {
+          apiParams.start = filters.start;
+          apiParams.end = filters.end;
+        }
+        
         const summaryRes = await axios.get(`${API_BASE}/expenses/summary/`, {
-          params: { period },
+          params: apiParams,
         });
         setSummary(summaryRes.data || null);
       } catch (summaryErr) {
@@ -332,8 +411,17 @@ function App() {
       }
 
       try {
+        // Prepare parameters for API calls
+        let apiParams = { period };
+        
+        // If we have explicit start/end dates from filters, use them
+        if (filters.start && filters.end) {
+          apiParams.start = filters.start;
+          apiParams.end = filters.end;
+        }
+        
         const insightsRes = await axios.get(`${API_BASE}/expenses/insights/`, {
-          params: { period },
+          params: apiParams,
         });
         setInsights(insightsRes.data || null);
       } catch (insightsErr) {
@@ -367,20 +455,46 @@ return (
       
       {/* --- SIGNED OUT VIEW --- */}
       <SignedOut>
-        <div className="clerk-auth-container">
-          <div className="clerk-auth-card">
-            <h1 className="app-title">Expense Tracker</h1>
-            <p className="app-subtitle">
-              A clean dashboard to understand and reflect on your spending.
-            </p>
-            <div className="clerk-login-wrapper">
-              <SignInButton mode="modal">
-                <button className="pill pill-active clerk-custom-btn">
-                  Sign In to Get Started
-                </button>
-              </SignInButton>
+        <div className="landing-page">
+          <nav className="landing-nav">
+            <div>
+              <div className="logo">Money<span>Notes</span></div>
+              <div className="punchline">A quiet place to understand your spending</div>
             </div>
-          </div>
+            <SignInButton mode="modal">
+              <button className="nav-login-btn">Sign In</button>
+            </SignInButton>
+          </nav>
+
+          <header className="hero-section">
+            <div className="hero-content">
+              <div className="badge">New: Gemini 2.5 Insights and Categorization Live</div>
+              <h1>Master your money with <span>AI intelligence.</span></h1>
+              <p>Track expenses, categorize automatically, and get personalized financial advice powered by Google Gemini.</p>
+              
+              <div className="hero-actions">
+                <SignInButton mode="modal">
+                  <button className="cta-button">Start Tracking for Free</button>
+                </SignInButton>
+                <div className="trust-badges">
+                  <span className="trust-item">✓ Secure Auth by Clerk</span>
+                  <span className="trust-item">✓ Private & Encrypted</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="hero-visual">
+              <div className="abstract-card main-card">
+                <div className="skeleton-line short"></div>
+                <div className="skeleton-value"></div>
+                <div className="skeleton-line long"></div>
+              </div>
+              <div className="abstract-card mini-card">
+                <div className="ai-pulse-small"></div>
+                <div className="skeleton-line medium"></div>
+              </div>
+            </div>
+          </header>
         </div>
       </SignedOut>
 
@@ -389,26 +503,90 @@ return (
         <div className="app">
           <header className="app-header">
             <div>
-              <h1 className="app-title">Expense Tracker</h1>
-              <p className="app-subtitle">
-                A clean dashboard to understand and reflect on your spending.
-              </p>
+              <div className="logo">Money<span>Notes</span></div>
+              <div className="punchline">A quiet place to understand your spending</div>
             </div>
 
             <div className="header-actions">
               <div className="period-toggle">
                 <button
                   className={period === "weekly" ? "pill pill-active" : "pill"}
-                  onClick={() => setPeriod("weekly")}
+                  onClick={() => {
+                    setPeriod("weekly");
+                    // Clear manual date filters when switching to weekly
+                    setFilters(prev => ({
+                      ...prev,
+                      start: "",
+                      end: ""
+                    }));
+                  }}
                 >
                   Weekly
                 </button>
                 <button
                   className={period === "monthly" ? "pill pill-active" : "pill"}
-                  onClick={() => setPeriod("monthly")}
+                  onClick={() => {
+                    setPeriod("monthly");
+                    // Clear manual date filters when switching to monthly
+                    setFilters(prev => ({
+                      ...prev,
+                      start: "",
+                      end: ""
+                    }));
+                  }}
                 >
                   Monthly
                 </button>
+              </div>
+
+              {/* Month and Year Picker for Dashboard */}
+              <div className="month-picker-container">
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => handleMonthChange(parseInt(e.target.value), selectedYear)}
+                  className="month-input-pill"
+                  title="Select month for AI insights"
+                >
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const month = i + 1;
+                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    const currentYear = new Date().getFullYear();
+                    const currentMonth = new Date().getMonth() + 1;
+                    
+                    // If selected year is current year, only show months up to current month
+                    if (selectedYear === currentYear && month > currentMonth) {
+                      return null;
+                    }
+                    
+                    return (
+                      <option key={month} value={month}>
+                        {monthNames[i]}
+                      </option>
+                    );
+                  }).filter(Boolean)}
+                </select>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => handleMonthChange(selectedMonth, parseInt(e.target.value))}
+                  className="month-input-pill"
+                  title="Select year for AI insights"
+                >
+                  {Array.from({ length: new Date().getFullYear() - 2020 + 1 }, (_, i) => {
+                    const year = 2020 + i;
+                    const currentYear = new Date().getFullYear();
+                    
+                    // Only show years up to current year
+                    if (year > currentYear) {
+                      return null;
+                    }
+                    
+                    return (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    );
+                  }).filter(Boolean)}
+                </select>
               </div>
 
             <button
@@ -588,7 +766,7 @@ return (
                           className="pie-chart"
                           style={{
                             backgroundImage: (() => {
-                              const colors = ["#22c55e", "#0ea5e9", "#a855f7", "#f97316", "#e11d48", "#facc15"];
+                              const colors = ["#a855f7", "#0ea5e9", "#22c55e", "#f97316", "#e11d48", "#facc15"];
                               let acc = 0;
                               const segments = effectiveSummary.by_category.map((cat, i) => {
                                 const pct = (Number(cat.total) / Number(totalSpent)) * 100;
@@ -684,6 +862,16 @@ return (
                         onChange={handleFilterChange}
                         className="input"
                       />
+                    </div>
+                    <div className="field">
+                      <label className="field-label">&nbsp;</label>
+                      <button
+                        onClick={handleAllTimeClick}
+                        className={period === "all" ? "pill pill-active all-time-btn" : "pill all-time-btn"}
+                        title="Show all expenses"
+                      >
+                        All Time
+                      </button>
                     </div>
                   </div>
 

@@ -2,7 +2,7 @@ import json
 import re
 import os
 from google import genai
-from google.genai import types
+from google.genai import types # Added for configuration types
 from django.conf import settings
 from .prompts import CATEGORY_PROMPT, INSIGHT_PROMPT
 
@@ -11,7 +11,7 @@ api_key = os.getenv("GEMINI_API_KEY")
 
 if api_key:
     try:
-        # We create a 'client' variable that you will use for all AI calls
+        # NEW SYNTAX: Initialize the Client object
         client = genai.Client(api_key=api_key)
         print("Success: Google AI Client configured.")
     except Exception as e:
@@ -23,9 +23,7 @@ else:
 
 
 def _safe_load_json(text: str):
-
     # Try to safely parse JSON from `text`
-
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -49,13 +47,10 @@ def _safe_load_json(text: str):
     raise json.JSONDecodeError("Could not decode JSON", text, 0)
 
 
-def suggest_category(description: str, amount: float, model_name: str = "models/gemini-2.0-flash"):
-    # Ask Gemini to suggest a category. Returns {"category": "<name>"} or None.
-    
+def suggest_category(description: str, amount: float, model_name: str = "gemini-2.5-flash"):
     if not description:
         return None
 
-    # Check if API key is configured
     if not client:
         print("AI: GOOGLE_API_KEY not configured, skipping category suggestion.")
         return None
@@ -66,12 +61,10 @@ def suggest_category(description: str, amount: float, model_name: str = "models/
     )
 
     try:
+        # NEW SYNTAX: Call via client.models.generate_content
         response = client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json"
-            )
+            model=model_name, 
+            contents=prompt
         )
 
         text = response.text
@@ -81,7 +74,6 @@ def suggest_category(description: str, amount: float, model_name: str = "models/
         print("=== end raw response ===")
 
         data = json.loads(text)
-
         category = data.get("category") or data.get("Category")
 
         if category:
@@ -94,18 +86,15 @@ def suggest_category(description: str, amount: float, model_name: str = "models/
         print("Google AI error in suggest_category():", repr(e))
         return None
 
-def generate_insights(summary: dict, previous_total: float | None = None, model_name: str = "models/gemini-2.5-flash"):
-    # Defensive input check
+def generate_insights(summary: dict, previous_total: float | None = None, model_name: str = "gemini-2.5-flash"):
     if not isinstance(summary, dict):
         print("generate_insights: invalid 'summary' input (not a dict).")
         return None
 
-    # Check if API key is configured
     if not client:
         print("AI: Client not configured, skipping insights generation.")
         return None
 
-    # ensure by_category is JSON serializable
     by_cat = summary.get("by_category", [])
     try:
         by_cat_json = json.dumps(by_cat)
@@ -122,8 +111,9 @@ def generate_insights(summary: dict, previous_total: float | None = None, model_
     )
 
     try:
+        # NEW SYNTAX: Call via client.models.generate_content
         response = client.models.generate_content(
-            model=model_name,
+            model=model_name, 
             contents=prompt
         )
 
@@ -135,29 +125,23 @@ def generate_insights(summary: dict, previous_total: float | None = None, model_
         print(text)
         print("=== end insight raw response ===")
 
-        # Try to parse JSON object from model output.
         try:
             data = _safe_load_json(text)
         except json.JSONDecodeError:
-            # If model returned plain text instead of JSON, wrap it into {"text": "<text>"}
             return {"text": text}
 
-        # If data is a dict and contains "text" key, return it
         if isinstance(data, dict) and "text" in data and isinstance(data["text"], str):
             return {"text": data["text"].strip()}
 
-        # If the model returned a plain string in the JSON or other keys
         if isinstance(data, dict):
             for candidate_key in ("insight", "summary", "text", "result"):
                 v = data.get(candidate_key)
                 if isinstance(v, str) and v.strip():
                     return {"text": v.strip()}
 
-        # If we reach here and data is a string, return it
         if isinstance(data, str) and data.strip():
             return {"text": data.strip()}
 
-        # nothing usable
         print("generate_insights: no usable 'text' in model output.")
         return None
 

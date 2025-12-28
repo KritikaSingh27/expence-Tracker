@@ -36,6 +36,7 @@ STYLE:
 - Use a calm, helpful tone (not preachy).
 - Use at most ONE emoji if it adds clarity.
 - Do not use headings or bullet points.
+- Give the insights mindfully.
 
 INPUT DATA:
 {{
