@@ -33,7 +33,11 @@ SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-fallback-key-for-developme
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "moneynotes-oi32.onrender.com",
+    ]
 
 #Gemini api key
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", None)  # None will disable AI features if no key
