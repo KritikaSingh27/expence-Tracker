@@ -150,10 +150,17 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:5174",
+    "https://money-notes-drab.vercel.app",
 ]
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
     "authorization",
+    "content-type",
+    "accept",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
 ]
 
 REST_FRAMEWORK = {
