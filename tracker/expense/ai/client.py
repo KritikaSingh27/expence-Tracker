@@ -67,7 +67,8 @@ def suggest_category(description: str, amount: float, model_name: str = "gemini-
             contents=prompt
         )
 
-        text = response.text
+        raw_text = response.text
+        text = re.sub(r'```json\s*|```', '', raw_text).strip()
         
         print("=== Gemini raw response ===")
         print(text)

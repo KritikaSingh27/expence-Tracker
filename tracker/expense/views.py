@@ -111,7 +111,7 @@ class ExpenseViewSet(ModelViewSet):
             from rest_framework.exceptions import NotAuthenticated
             raise NotAuthenticated("User identification failed. Please sign in again.")
     
-        clerk_id = user_obj.id # clerk_id is now the string "user_2N..."
+        clerk_id = user_obj.id
     
         # Save the expense with the Clerk user ID
         expense = serializer.save(user_id=clerk_id)
@@ -123,6 +123,7 @@ class ExpenseViewSet(ModelViewSet):
         suggestion = suggest_category(
             description=expense.description,
             amount=float(expense.amount),
+            model_name="gemini-2.5-flash"
         )
 
         # Extract and Save properly
@@ -130,14 +131,14 @@ class ExpenseViewSet(ModelViewSet):
             cat_name = suggestion.get("category")
             if cat_name:
                 # Create/Get the Category object
-                category_obj, created = Category.objects.get_or_create(
+                category_obj, _ = Category.objects.get_or_create(
                     user_id=clerk_id,
                     name=cat_name.strip()
                 )
                 
                 # Update the expense with BOTH the link and the name string
                 expense.category = category_obj
-                expense.category_name = cat_name.strip()
+                expense.category_name = category_obj.name
                 expense.save()
                 print(f"DEBUG: AI categorized '{expense.description}' as '{cat_name}'")
 
