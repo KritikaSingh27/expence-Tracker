@@ -5,7 +5,7 @@ import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/clerk-reac
 import { useAuth } from "@clerk/clerk-react";
 
 // Base API URL
-const API_BASE = "http://127.0.0.1:8000//api";
+const API_BASE = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 function App() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
