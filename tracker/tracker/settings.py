@@ -150,7 +150,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:5174",
-    "https://moneynotes.vercel.app/",
+    "https://moneynotes.vercel.app",
 ]
 
 CORS_ALLOW_HEADERS = list(default_headers) + [

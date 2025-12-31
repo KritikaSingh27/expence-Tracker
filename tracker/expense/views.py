@@ -323,6 +323,13 @@ class ExpenseViewSet(ModelViewSet):
             
         total = qs_period.aggregate(total=Sum("amount"))["total"] or 0
 
+        if total == 0:
+            return Response({
+                "summary": summary,
+                "cards": {"total_spent": 0, "top_category": None},
+                "insight": "No expenses found for this period. Start adding transactions to see AI insights!",
+            })
+        
         grouped = (
             qs_period.values("category__id", "category__name")
                      .annotate(total=Sum("amount"))
@@ -391,3 +398,10 @@ class UserSettingsViewSet(ModelViewSet):
             raise ValueError("Settings already exist for this user.")
 
         serializer.save(user_id=clerk_id)
+
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)

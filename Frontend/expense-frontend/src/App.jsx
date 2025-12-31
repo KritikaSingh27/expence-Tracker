@@ -5,7 +5,7 @@ import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/clerk-reac
 import { useAuth } from "@clerk/clerk-react";
 
 // Base API URL
-const API_BASE = `${import.meta.env.VITE_API_BASE_URL}/api`;
+const API_BASE = "http://127.0.0.1:8000//api";
 
 function App() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
@@ -36,11 +36,11 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [error, setError] = useState("");
-
   const [period, setPeriod] = useState("monthly");
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1); // 1-12
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [monthStartDay, setMonthStartDay] = useState(1);
   const [filters, setFilters] = useState({
     start: "",
     end: "",
@@ -85,28 +85,35 @@ function App() {
         let startDate = "";
         let endDate = "";
         
-        if (period === "weekly") {
-          const today = new Date();
-          const monday = new Date(today);
-          monday.setDate(today.getDate() - today.getDay() + 1);
-          const sunday = new Date(monday);
-          sunday.setDate(monday.getDate() + 6);
-          
-          startDate = monday.toISOString().split('T')[0];
-          endDate = sunday.toISOString().split('T')[0];
-        } else if (period === "monthly") {
-          const today = new Date();
-          const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-          const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-          
-          startDate = firstDay.toISOString().split('T')[0];
-          endDate = lastDay.toISOString().split('T')[0];
+        if (filters.start && filters.end) {
+          startDate = filters.start;
+          endDate = filters.end;
+        }
+        else{
+          if (period === "weekly") {
+            const today = new Date();
+            const monday = new Date(today);
+            monday.setDate(today.getDate() - today.getDay() + 1);
+            const sunday = new Date(monday);
+            sunday.setDate(monday.getDate() + 6);
+            
+            startDate = monday.toISOString().split('T')[0];
+            endDate = sunday.toISOString().split('T')[0];
+          } 
+          else if (period === "monthly") {
+            const today = new Date();
+            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+            const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+            
+            startDate = firstDay.toISOString().split('T')[0];
+            endDate = lastDay.toISOString().split('T')[0];
+          }
         }
 
         const response = await axios.get(`${API_BASE}/expenses/`, {
           params: {
-            start: filters.start || startDate,
-            end: filters.end || endDate,
+            start: startDate,
+            end: endDate,
             search: filters.search || undefined,
           },
         });
@@ -432,6 +439,27 @@ function App() {
       console.error("Error refreshing data:", err);
     }
   };
+
+  const handleMonthStartChange = async (e) => {
+  const newDay = e.target.value;
+  setMonthStartDay(newDay); // Update UI immediately
+
+    try {
+      // Fetch settings to find the ID
+      const res = await axios.get(`${API_BASE}/settings/`);
+      const settingsId = res.data[0]?.id;
+
+      if (settingsId) {
+        // Send to Django
+        await axios.patch(`${API_BASE}/settings/${settingsId}/`, {
+          month_start_date: parseInt(newDay)
+        });
+        await refreshData();
+      }
+    } catch (err) {
+      console.error("Failed to update settings:", err);
+    }
+  }
 
   // Prefer summary from /summary/, but fall back to /insights/ summary if needed
   const effectiveSummary = summary ?? insights?.summary ?? null;
@@ -1130,6 +1158,8 @@ return (
                     id="month-start" 
                     className="setting-input"
                     defaultValue="1"
+                    value={monthStartDay || 1}
+                    onChange={handleMonthStartChange}
                   >
                     {Array.from({ length: 30 }, (_, i) => i + 1).map(day => (
                       <option key={day} value={day}>{day}</option>
