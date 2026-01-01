@@ -365,80 +365,55 @@ function App() {
   };
 
   // Function to refresh data
-  const refreshData = async () => {
-    try {
-      let startDate = "";
-      let endDate = "";
-      
-      if (period === "weekly") {
-        const today = new Date();
-        const monday = new Date(today);
-        monday.setDate(today.getDate() - today.getDay() + 1);
-        const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        
-        startDate = monday.toISOString().split('T')[0];
-        endDate = sunday.toISOString().split('T')[0];
-      } else if (period === "monthly") {
-        const today = new Date();
-        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-        
-        startDate = firstDay.toISOString().split('T')[0];
-        endDate = lastDay.toISOString().split('T')[0];
-      }
-
-      // Refresh expenses
-      const expensesResponse = await axios.get(`${API_BASE}/expenses/`, {
-        params: {
-          start: filters.start || startDate,
-          end: filters.end || endDate,
-          search: filters.search || undefined,
-        },
-      });
-      setExpenses(expensesResponse.data || []);
-
-      // Refresh summary and insights with error handling
-      try {
-        // Prepare parameters for API calls
-        let apiParams = { period };
-        
-        // If we have explicit start/end dates from filters, use them
-        if (filters.start && filters.end) {
-          apiParams.start = filters.start;
-          apiParams.end = filters.end;
-        }
-        
-        const summaryRes = await axios.get(`${API_BASE}/expenses/summary/`, {
-          params: apiParams,
-        });
-        setSummary(summaryRes.data || null);
-      } catch (summaryErr) {
-        console.error("Error refreshing summary:", summaryErr);
-      }
-
-      try {
-        // Prepare parameters for API calls
-        let apiParams = { period };
-        
-        // If we have explicit start/end dates from filters, use them
-        if (filters.start && filters.end) {
-          apiParams.start = filters.start;
-          apiParams.end = filters.end;
-        }
-        
-        const insightsRes = await axios.get(`${API_BASE}/expenses/insights/`, {
-          params: apiParams,
-        });
-        setInsights(insightsRes.data || null);
-      } catch (insightsErr) {
-        console.error("Error refreshing insights:", insightsErr);
-      }
-      
-    } catch (err) {
-      console.error("Error refreshing data:", err);
+const refreshData = async () => {
+  try {
+    // 1. Determine the Date Range based on the user's selection
+    let startDate = "";
+    let endDate = "";
+    const referenceDate = selectedDate || new Date();
+    
+    if (period === "weekly") {
+      const monday = new Date(referenceDate);
+      monday.setDate(referenceDate.getDate() - referenceDate.getDay() + 1);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      startDate = monday.toISOString().split('T')[0];
+      endDate = sunday.toISOString().split('T')[0];
+    } else {
+      // Monthly: calculate the 1st and the Last day of the selected month
+      const firstDay = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
+      const lastDay = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0);
+      startDate = firstDay.toISOString().split('T')[0];
+      endDate = lastDay.toISOString().split('T')[0];
     }
-  };
+
+    // 2. Prepare the parameters to tell Django exactly what data we want
+    const apiParams = { 
+      period, 
+      date: startDate, // Crucial for your Django insights logic
+      start: filters.start || startDate,
+      end: filters.end || endDate,
+      search: filters.search || undefined
+    };
+
+    // 3. THE SPEED FIX: Start all three API calls at the exact same time
+    // Instead of waiting for one to finish before starting the next.
+    const [expensesRes, summaryRes, insightsRes] = await Promise.all([
+      axios.get(`${API_BASE}/expenses/`, { params: apiParams }),
+      axios.get(`${API_BASE}/expenses/summary/`, { params: apiParams }),
+      axios.get(`${API_BASE}/expenses/insights/`, { params: apiParams })
+    ]);
+
+    // 4. Update all React states at once
+    setExpenses(expensesRes.data || []);
+    setSummary(summaryRes.data || null);
+    setInsights(insightsRes.data || null);
+
+  } catch (err) {
+    console.error("MoneyNotes Refresh Error:", err);
+    // Optional: setError("Connection slow. Still trying to load your data...");
+  }
+};
 
   const handleMonthStartChange = async (e) => {
   const newDay = e.target.value;

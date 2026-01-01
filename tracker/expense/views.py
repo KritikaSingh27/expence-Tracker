@@ -313,6 +313,7 @@ class ExpenseViewSet(ModelViewSet):
                 start_day = settings.month_start_date
             except userSetting.DoesNotExist:
                 start_day = 1
+                
             start, end = get_custom_month_range(ref_date, start_day)
             period_len = (end - start).days + 1
             prev_start, prev_end = start - timedelta(days=period_len), start - timedelta(days=1)
