@@ -73,7 +73,7 @@ class TagViewSet(ModelViewSet):
 # ---- EXPENSE ----
 class ExpenseViewSet(ModelViewSet):
     serializer_class = ExpenseSerializer
-    # Permission is now handled by Clerk Middleware + IsAuthenticated
+    # Permission is handled by Clerk Middleware + IsAuthenticated
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
@@ -325,7 +325,13 @@ class ExpenseViewSet(ModelViewSet):
 
         if total == 0:
             return Response({
-                "summary": summary,
+                "summary": {
+                    "period": period, 
+                    "start": start.isoformat() if start else None, 
+                    "end": end.isoformat() if end else None, 
+                    "total": 0, 
+                    "by_category": []
+                },
                 "cards": {"total_spent": 0, "top_category": None},
                 "insight": "No expenses found for this period. Start adding transactions to see AI insights!",
             })
@@ -370,7 +376,7 @@ class ExpenseViewSet(ModelViewSet):
         return Response({
             "summary": summary,
             "cards": {"total_spent": float(total), "top_category": by_category[0]["name"] if by_category else None},
-            "insight": insight,
+            "insight": insight_text if 'insight_text' in locals() else insight,
         })
 
 # ---- USER SETTINGS ----
