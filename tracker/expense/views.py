@@ -227,16 +227,19 @@ class ExpenseViewSet(ModelViewSet):
                 start_day = settings.month_start_date
             except userSetting.DoesNotExist:
                 start_day = 1
+
             start, end = get_custom_month_range(ref_date, start_day)
 
         # Apply date filtering only if start and end are defined
         if start and end:
-            qs = qs.filter(date__gte=start, date__lte=end)
+            qs_period = qs.filter(date__gte=start, date__lte=end)
+        else:
+            qs_period = qs
         
-        total = qs.aggregate(total=Sum("amount"))["total"] or 0
+        total = qs_period.aggregate(total=Sum("amount"))["total"] or 0
 
         grouped = (
-            qs.values("category__id", "category__name")
+            qs_period.values("category__id", "category__name")
               .annotate(total=Sum("amount"))
               .order_by("-total")
         )
