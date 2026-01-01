@@ -390,6 +390,16 @@ const refreshData = async () => {
     // 2. Prepare the parameters to tell Django exactly what data we want
     const apiParams = { 
       period, 
+      date: startDate, // This is what the Summary/Insights logic looks for
+    };
+
+    if (filters.start && filters.end) {
+      apiParams.start = filters.start;
+      apiParams.end = filters.end;
+    }
+
+    const expenseParams = { 
+      period, 
       date: startDate, // Crucial for your Django insights logic
       start: filters.start || startDate,
       end: filters.end || endDate,
@@ -399,7 +409,7 @@ const refreshData = async () => {
     // 3. THE SPEED FIX: Start all three API calls at the exact same time
     // Instead of waiting for one to finish before starting the next.
     const [expensesRes, summaryRes, insightsRes] = await Promise.all([
-      axios.get(`${API_BASE}/expenses/`, { params: apiParams }),
+      axios.get(`${API_BASE}/expenses/`, { params: expenseParams }),
       axios.get(`${API_BASE}/expenses/summary/`, { params: apiParams }),
       axios.get(`${API_BASE}/expenses/insights/`, { params: apiParams })
     ]);
