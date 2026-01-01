@@ -4,6 +4,12 @@ import "./App.css";
 import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/clerk-react";
 import { useAuth } from "@clerk/clerk-react";
 
+import SummaryCards from "./components/SummaryCards";
+import InsightsPanel from "./components/InsightsPanel";
+import CategoryBreakdown from "./components/CategoryBreakdown";
+import ExpenseList from "./components/ExpenseList";
+import ExpenseModal from "./components/ExpenseModal";
+
 // Base API URL
 const API_BASE = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
@@ -16,9 +22,6 @@ function App() {
         const token = await getToken();
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
-          // console.log("Token attached to request:", config.url); // For debugging
-        } else {
-          console.warn("No token found for request:", config.url);
         }
       } catch (error) {
         console.error("Error in Axios Interceptor:", error);
@@ -33,8 +36,12 @@ function App() {
   const [expenses, setExpenses] = useState([]);
   const [summary, setSummary] = useState(null);
   const [insights, setInsights] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  // Loaders
+  const [expensesLoading, setExpensesLoading] = useState(true);
+  const [summaryLoading, setSummaryLoading] = useState(true);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+
   const [error, setError] = useState("");
   const [period, setPeriod] = useState("monthly");
   const [activeTab, setActiveTab] = useState("overview");
@@ -46,7 +53,7 @@ function App() {
     end: "",
     search: "",
   });
-  
+
   // Expense form modal state
   const [showExpenseModal, setShowExpenseModal] = useState(false);
   const [expenseForm, setExpenseForm] = useState({
@@ -59,7 +66,7 @@ function App() {
 
   // User profile modal state
   const [showUserModal, setShowUserModal] = useState(false);
-  
+
   // Theme state - default is dark
   const [theme, setTheme] = useState("dark");
 
@@ -73,137 +80,146 @@ function App() {
     category: "",
   });
 
-  // Load expenses list filtered by current period
-  useEffect(() => {
-    if (!isLoaded || !isSignedIn) return;
-    const fetchExpenses = async () => {
-      try {
-        setLoading(true);
-        setError("");
+  // --- DATA FETCHING ---
 
-        // Calculate date range based on current period
-        let startDate = "";
-        let endDate = "";
-        
-        if (filters.start && filters.end) {
-          startDate = filters.start;
-          endDate = filters.end;
-        }
-        else{
-          if (period === "weekly") {
-            const today = new Date();
-            const monday = new Date(today);
-            monday.setDate(today.getDate() - today.getDay() + 1);
-            const sunday = new Date(monday);
-            sunday.setDate(monday.getDate() + 6);
-            
-            startDate = monday.toISOString().split('T')[0];
-            endDate = sunday.toISOString().split('T')[0];
-          } 
-          else if (period === "monthly") {
-            const today = new Date();
-            const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-            const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-            
-            startDate = firstDay.toISOString().split('T')[0];
-            endDate = lastDay.toISOString().split('T')[0];
-          }
-        }
+  const fetchExpenses = async () => {
+    try {
+      setExpensesLoading(true);
+      setError("");
 
-        const response = await axios.get(`${API_BASE}/expenses/`, {
-          params: {
-            start: startDate,
-            end: endDate,
-            search: filters.search || undefined,
-          },
+      let startDate = "";
+      let endDate = "";
+
+      if (filters.start && filters.end) {
+        startDate = filters.start;
+        endDate = filters.end;
+      }
+      else {
+        if (period === "weekly") {
+          const today = new Date();
+          const monday = new Date(today);
+          monday.setDate(today.getDate() - today.getDay() + 1);
+          const sunday = new Date(monday);
+          sunday.setDate(monday.getDate() + 6);
+          startDate = monday.toISOString().split('T')[0];
+          endDate = sunday.toISOString().split('T')[0];
+        }
+        else if (period === "monthly") {
+          const today = new Date();
+          const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+          const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+          startDate = firstDay.toISOString().split('T')[0];
+          endDate = lastDay.toISOString().split('T')[0];
+        }
+      }
+
+      const response = await axios.get(`${API_BASE}/expenses/`, {
+        params: {
+          start: startDate,
+          end: endDate,
+          search: filters.search || undefined,
+        },
+      });
+
+      setExpenses(response.data || []);
+    } catch (err) {
+      console.error("Error fetching expenses:", err);
+      setError("Something went wrong while loading your expenses.");
+    } finally {
+      setExpensesLoading(false);
+    }
+  };
+
+  const fetchSummaryAndInsights = async () => {
+    const lastFetch = localStorage.getItem('lastAIRequest');
+    const now = Date.now();
+
+    // Throttle AI requests (Insights only)
+    const shouldSkipAI = lastFetch && (now - lastFetch < 60000); // 1 min throttle
+
+    try {
+      setSummaryLoading(true);
+      if (!shouldSkipAI) setInsightsLoading(true);
+
+      // Prepare parameters
+      let apiParams = { period };
+      if (filters.start && filters.end) {
+        apiParams.start = filters.start;
+        apiParams.end = filters.end;
+      }
+
+      // 1. Fetch Summary (Fast)
+      axios.get(`${API_BASE}/expenses/summary/`, { params: apiParams })
+        .then(res => {
+          setSummary(res.data || null);
+          setSummaryLoading(false);
+        })
+        .catch(err => {
+          console.error("Error fetching summary:", err);
+          setSummaryLoading(false);
         });
 
-        setExpenses(response.data || []);
-      } catch (err) {
-        console.error("Error fetching expenses:", err);
-        setError("Something went wrong while loading your expenses.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchExpenses();
-  }, [isLoaded, isSignedIn, filters.start, filters.end, filters.search, period]);
-
-  // Load summary + insights for the selected period
-  useEffect(() => {
-    const fetchSummaryAndInsights = async () => {
-      const lastFetch = localStorage.getItem('lastAIRequest');
-      const now = Date.now();
-      // Wait between AI calls to save quota
-      if (lastFetch && (now - lastFetch < 120000)) {
-        console.log("AI request blocked by local throttle to save quota.");
-        return; 
+      // 2. Fetch Insights (Slow)
+      if (!shouldSkipAI) {
+        axios.get(`${API_BASE}/expenses/insights/`, { params: apiParams })
+          .then(res => {
+            setInsights(res.data || null);
+            setInsightsLoading(false);
+            localStorage.setItem('lastAIRequest', Date.now());
+          })
+          .catch(err => {
+            console.error("Error fetching insights:", err);
+            setInsightsLoading(false);
+          });
       }
 
-      try {
-        setSummaryLoading(true);
-        setSummary(null);
-        setInsights(null);
-        
-        // Prepare parameters for API calls
-        let apiParams = { period };
-        
-        // If we have explicit start/end dates from filters, use them
-        if (filters.start && filters.end) {
-          apiParams.start = filters.start;
-          apiParams.end = filters.end;
-        }
-        
-        const [summaryRes, insightsRes] = await Promise.all([
-          axios.get(`${API_BASE}/expenses/summary/`, {
-            params: apiParams,
-          }),
-          axios.get(`${API_BASE}/expenses/insights/`, {
-            params: apiParams,
-          }),
-        ]);
-
-        setSummary(summaryRes.data || null);
-        setInsights(insightsRes.data || null);
-
-        localStorage.setItem('lastAIRequest', Date.now());
-
-      } catch (err) {
-        console.error("Error fetching summary/insights:", err);
-      } finally {
-        setSummaryLoading(false);
-      }
-    };
-
-    if (isLoaded && isSignedIn) {
-       fetchSummaryAndInsights();
+    } catch (err) {
+      console.error("Error initiating fetch:", err);
+      setSummaryLoading(false);
+      setInsightsLoading(false);
     }
-  }, [period, selectedMonth, selectedYear, filters.start, filters.end, isLoaded, isSignedIn]);
+  };
+
+  // Initial Load & Filter Changes
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    fetchExpenses();
+    fetchSummaryAndInsights();
+  }, [isLoaded, isSignedIn, filters.start, filters.end, filters.search, period, selectedMonth, selectedYear]);
+
+
+  // Refresh Data (Called after mutations)
+  const refreshData = async () => {
+    // Re-fetch everything
+    await Promise.all([
+      fetchExpenses(),
+      fetchSummaryAndInsights() // This handles its own decoupling
+    ]);
+  };
+
+
+  // --- HANDLERS ---
 
   const handleFilterChange = (e) => {
     const { name, value } = e.target;
     setFilters((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Handle month picker change for dashboard
   const handleMonthChange = (month, year) => {
     const currentYear = new Date().getFullYear();
     const currentMonth = new Date().getMonth() + 1;
-    
-    // If switching to current year and selected month is in the future, adjust to current month
+
     if (year === currentYear && month > currentMonth) {
       month = currentMonth;
     }
-    
+
     setSelectedMonth(month);
     setSelectedYear(year);
     setPeriod("monthly");
-    
-    // Calculate first and last day of selected month/year
+
     const firstDay = new Date(year, month - 1, 1);
     const lastDay = new Date(year, month, 0);
-    
+
     setFilters(prev => ({
       ...prev,
       start: firstDay.toISOString().split('T')[0],
@@ -211,37 +227,23 @@ function App() {
     }));
   };
 
-  // Handle "All Time" button click
   const handleAllTimeClick = () => {
     if (period === "all") {
-      // If already on "all time", switch back to monthly
       setPeriod("monthly");
-      setFilters(prev => ({
-        ...prev,
-        start: "",
-        end: ""
-      }));
+      setFilters(prev => ({ ...prev, start: "", end: "" }));
     } else {
-      // Switch to "all time"
       setPeriod("all");
-      setFilters(prev => ({
-        ...prev,
-        start: "",
-        end: ""
-      }));
+      setFilters(prev => ({ ...prev, start: "", end: "" }));
     }
   };
 
-  // Handle expense form changes
   const handleExpenseFormChange = (e) => {
     const { name, value } = e.target;
     setExpenseForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Submit new expense
   const handleExpenseSubmit = async (e) => {
     e.preventDefault();
-    
     if (!expenseForm.amount || !expenseForm.description) {
       setError("Amount and description are required");
       return;
@@ -258,7 +260,6 @@ function App() {
         category: expenseForm.category || null,
       });
 
-      // Reset form and close modal
       setExpenseForm({
         amount: "",
         description: "",
@@ -267,8 +268,9 @@ function App() {
       });
       setShowExpenseModal(false);
 
-      // Refresh data
-      await refreshData();
+      // Auto-refresh
+      refreshData();
+
     } catch (err) {
       console.error("Error creating expense:", err);
       setError("Failed to create expense. Please try again.");
@@ -277,7 +279,6 @@ function App() {
     }
   };
 
-  // Handle edit expense
   const handleEditExpense = (expense) => {
     setEditingExpense(expense);
     setEditForm({
@@ -287,32 +288,18 @@ function App() {
       category: expense.category_name || "",
     });
     setShowEditModal(true);
-    setError(""); // Clear any previous errors
+    setError("");
   };
 
-  // Handle edit form changes
   const handleEditFormChange = (e) => {
     const { name, value } = e.target;
     setEditForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Submit edited expense
   const handleEditSubmit = async (e) => {
     e.preventDefault();
-    
     if (!editForm.amount || !editForm.description) {
       setError("Amount and description are required");
-      return;
-    }
-
-    const amount = parseFloat(editForm.amount);
-    if (isNaN(amount) || amount <= 0) {
-      setError("Please enter a valid amount greater than 0");
-      return;
-    }
-
-    if (amount > 99999999.99) {
-      setError("Amount cannot exceed 99,999,999.99");
       return;
     }
 
@@ -321,19 +308,18 @@ function App() {
       setError("");
 
       const requestData = {
-        amount: amount,
+        amount: parseFloat(editForm.amount),
         description: editForm.description.trim(),
         date: editForm.date || null,
         category_name: editForm.category.trim() || null,
       };
 
       await axios.put(`${API_BASE}/expenses/${editingExpense.id}/`, requestData);
-      
-      // Close modal and refresh data
+
       setShowEditModal(false);
       setEditingExpense(null);
-      await refreshData();
-      
+      refreshData();
+
     } catch (err) {
       console.error("Error updating expense:", err);
       setError("Failed to update expense. Please try again.");
@@ -342,20 +328,15 @@ function App() {
     }
   };
 
-  // Delete expense
   const handleDeleteExpense = async () => {
     if (!editingExpense) return;
-
     try {
       setSubmitting(true);
       setError("");
-
       await axios.delete(`${API_BASE}/expenses/${editingExpense.id}/`);
-
       setShowEditModal(false);
       setEditingExpense(null);
-      await refreshData();
-      
+      refreshData();
     } catch (err) {
       console.error("Error deleting expense:", err);
       setError("Failed to delete expense. Please try again.");
@@ -364,109 +345,35 @@ function App() {
     }
   };
 
-  // Function to refresh data
-const refreshData = async () => {
-  try {
-    // 1. Determine the Date Range based on the user's selection
-    let startDate = "";
-    let endDate = "";
-    const referenceDate = selectedDate || new Date();
-    
-    if (period === "weekly") {
-      const monday = new Date(referenceDate);
-      monday.setDate(referenceDate.getDate() - referenceDate.getDay() + 1);
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
-      startDate = monday.toISOString().split('T')[0];
-      endDate = sunday.toISOString().split('T')[0];
-    } else {
-      // Monthly: calculate the 1st and the Last day of the selected month
-      const firstDay = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), 1);
-      const lastDay = new Date(referenceDate.getFullYear(), referenceDate.getMonth() + 1, 0);
-      startDate = firstDay.toISOString().split('T')[0];
-      endDate = lastDay.toISOString().split('T')[0];
-    }
-
-    // 2. Prepare the parameters to tell Django exactly what data we want
-    const apiParams = { 
-      period, 
-      date: startDate, // This is what the Summary/Insights logic looks for
-    };
-
-    if (filters.start && filters.end) {
-      apiParams.start = filters.start;
-      apiParams.end = filters.end;
-    }
-
-    const expenseParams = { 
-      period, 
-      date: startDate, // Crucial for your Django insights logic
-      start: filters.start || startDate,
-      end: filters.end || endDate,
-      search: filters.search || undefined
-    };
-
-    // 3. THE SPEED FIX: Start all three API calls at the exact same time
-    // Instead of waiting for one to finish before starting the next.
-    const [expensesRes, summaryRes, insightsRes] = await Promise.all([
-      axios.get(`${API_BASE}/expenses/`, { params: expenseParams }),
-      axios.get(`${API_BASE}/expenses/summary/`, { params: apiParams }),
-      axios.get(`${API_BASE}/expenses/insights/`, { params: apiParams })
-    ]);
-
-    // 4. Update all React states at once
-    setExpenses(expensesRes.data || []);
-    setSummary(summaryRes.data || null);
-    setInsights(insightsRes.data || null);
-
-  } catch (err) {
-    console.error("MoneyNotes Refresh Error:", err);
-    // Optional: setError("Connection slow. Still trying to load your data...");
-  }
-};
-
   const handleMonthStartChange = async (e) => {
-  const newDay = e.target.value;
-  setMonthStartDay(newDay); // Update UI immediately
-
+    const newDay = e.target.value;
+    setMonthStartDay(newDay);
     try {
-      // Fetch settings to find the ID
       const res = await axios.get(`${API_BASE}/settings/`);
       const settingsId = res.data[0]?.id;
-
       if (settingsId) {
-        // Send to Django
         await axios.patch(`${API_BASE}/settings/${settingsId}/`, {
           month_start_date: parseInt(newDay)
         });
-        await refreshData();
+        refreshData();
       }
     } catch (err) {
       console.error("Failed to update settings:", err);
     }
   }
 
-  // Prefer summary from /summary/, but fall back to /insights/ summary if needed
+  // Derived Data
   const effectiveSummary = summary ?? insights?.summary ?? null;
-
   const totalSpent = effectiveSummary?.total ?? insights?.cards?.total_spent ?? null;
-
   const topCategory = insights?.cards?.top_category ||
-    (effectiveSummary?.by_category &&
-      effectiveSummary.by_category[0] &&
-      effectiveSummary.by_category[0].name) ||
-    null;
+    (effectiveSummary?.by_category && effectiveSummary.by_category[0]?.name) || null;
+  const insightText = typeof insights?.insight === "string" ? insights.insight : insights?.insight?.text || null;
 
-  const insightText = typeof insights?.insight === "string"
-      ? insights.insight
-      : insights?.insight?.text || null;
 
- if (!isLoaded) return <div className="loading">Loading Auth...</div>;
+  if (!isLoaded) return <div className="loading">Loading Auth...</div>;
 
-return (
+  return (
     <div className={theme === "light" ? "light-theme" : ""}>
-      
-      {/* --- SIGNED OUT VIEW --- */}
       <SignedOut>
         <div className="landing-page">
           <nav className="landing-nav">
@@ -478,13 +385,12 @@ return (
               <button className="nav-login-btn">Sign In</button>
             </SignInButton>
           </nav>
-
           <header className="hero-section">
             <div className="hero-content">
               <div className="badge">New: Gemini 2.5 Insights and Categorization Live</div>
               <h1>Master your money with <span>AI intelligence.</span></h1>
               <p>Track expenses, categorize automatically, and get personalized financial advice powered by Google Gemini.</p>
-              
+
               <div className="hero-actions">
                 <SignInButton mode="modal">
                   <button className="cta-button">Start Tracking for Free</button>
@@ -511,7 +417,6 @@ return (
         </div>
       </SignedOut>
 
-      {/* --- SIGNED IN VIEW --- */}
       <SignedIn>
         <div className="app">
           <header className="app-header">
@@ -526,12 +431,7 @@ return (
                   className={period === "weekly" ? "pill pill-active" : "pill"}
                   onClick={() => {
                     setPeriod("weekly");
-                    // Clear manual date filters when switching to weekly
-                    setFilters(prev => ({
-                      ...prev,
-                      start: "",
-                      end: ""
-                    }));
+                    setFilters(prev => ({ ...prev, start: "", end: "" }));
                   }}
                 >
                   Weekly
@@ -540,78 +440,38 @@ return (
                   className={period === "monthly" ? "pill pill-active" : "pill"}
                   onClick={() => {
                     setPeriod("monthly");
-                    // Clear manual date filters when switching to monthly
-                    setFilters(prev => ({
-                      ...prev,
-                      start: "",
-                      end: ""
-                    }));
+                    setFilters(prev => ({ ...prev, start: "", end: "" }));
                   }}
                 >
                   Monthly
                 </button>
               </div>
 
-              {/* Month and Year Picker for Dashboard */}
               <div className="month-picker-container">
                 <select
                   value={selectedMonth}
                   onChange={(e) => handleMonthChange(parseInt(e.target.value), selectedYear)}
                   className="month-input-pill"
-                  title="Select month for AI insights"
                 >
-                  {Array.from({ length: 12 }, (_, i) => {
-                    const month = i + 1;
-                    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                    const currentYear = new Date().getFullYear();
-                    const currentMonth = new Date().getMonth() + 1;
-                    
-                    // If selected year is current year, only show months up to current month
-                    if (selectedYear === currentYear && month > currentMonth) {
-                      return null;
-                    }
-                    
-                    return (
-                      <option key={month} value={month}>
-                        {monthNames[i]}
-                      </option>
-                    );
-                  }).filter(Boolean)}
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                    <option key={m} value={m}>{new Date(0, m - 1).toLocaleString('default', { month: 'short' })}</option>
+                  ))}
                 </select>
                 <select
                   value={selectedYear}
                   onChange={(e) => handleMonthChange(selectedMonth, parseInt(e.target.value))}
                   className="month-input-pill"
-                  title="Select year for AI insights"
                 >
-                  {Array.from({ length: new Date().getFullYear() - 2020 + 1 }, (_, i) => {
-                    const year = 2020 + i;
-                    const currentYear = new Date().getFullYear();
-                    
-                    // Only show years up to current year
-                    if (year > currentYear) {
-                      return null;
-                    }
-                    
-                    return (
-                      <option key={year} value={year}>
-                        {year}
-                      </option>
-                    );
-                  }).filter(Boolean)}
+                  {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - i).map(y => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
                 </select>
               </div>
 
-            <button
-                className="user-profile-btn menu-dots-btn"
-                onClick={() => setShowUserModal(true)}
-                title="App Settings"
-              >
-                <img className="three-dots" src="three-dots-menu.png"/>
-                <img className="three-dots-light" src="three-dots-light.png" />
+              <button className="user-profile-btn menu-dots-btn" onClick={() => setShowUserModal(true)}>
+                <img className="three-dots" src="three-dots-menu.png" alt="menu" />
+                <img className="three-dots-light" src="three-dots-light.png" alt="menu" />
               </button>
-
-              {/* CLERK USER BUTTON: Handles Profile and Sign Out automatically */}
               <UserButton afterSignOutUrl="/" />
             </div>
           </header>
@@ -635,73 +495,15 @@ return (
             {activeTab === "overview" && (
               <>
                 <aside className="layout-side">
-                  <div className="panel ai-insights-panel">
-                    <div className="ai-badge">
-                      <svg className="ai-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-                      </svg>
-                      <span>AI Powered</span>
-                    </div>
-                    <div className="panel-header">
-                      <h2 className="panel-title ai-title">
-                        <span className="ai-gradient-text">Smart Insights</span>
-                      </h2>
-                      <span className="panel-caption">
-                        Personalized analysis powered by Google Gemini AI
-                      </span>
-                    </div>
-                    {loading ? (
-                      <div className="ai-loading">
-                        <div className="ai-loading-animation">
-                          <div className="ai-pulse"></div>
-                          <div className="ai-pulse"></div>
-                          <div className="ai-pulse"></div>
-                        </div>
-                        <span>AI is analyzing your spending patterns...</span>
-                      </div>
-                    ) : insightText ? (
-                      <div className="ai-insight-content">
-                        <div className="ai-insight-text">{insightText}</div>
-                        <div className="ai-footer">
-                          <svg className="ai-footer-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <circle cx="12" cy="12" r="3"/>
-                            <path d="M12 1v6m0 6v6"/>
-                            <path d="m15.5 3.5-1.5 1.5"/>
-                            <path d="m10 12 1.5 1.5"/>
-                            <path d="m15.5 20.5-1.5-1.5"/>
-                            <path d="M4 12l2-2"/>
-                            <path d="M20 12l-2-2"/>
-                            <path d="m4.5 5.5 2 2"/>
-                            <path d="m18.5 5.5-2 2"/>
-                            <path d="m18.5 18.5-2-2"/>
-                            <path d="m4.5 18.5 2-2"/>
-                          </svg>
-                          <span>Generated by AI • Powered by Google Gemini</span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="ai-empty-state">
-                        <div className="ai-empty-icon">
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-                          </svg>
-                        </div>
-                        <p>AI insights will appear here when there is enough spending data to analyze.</p>
-                        <span className="ai-empty-caption">Add more expenses to unlock personalized insights!</span>
-                      </div>
-                    )}
-                  </div>
+                  <InsightsPanel loading={insightsLoading} insightText={insightText} />
 
                   <div className="panel">
                     <div className="panel-header">
                       <h2 className="panel-title">Category Totals</h2>
-                      <span className="panel-caption">
-                        Spending breakdown by category
-                      </span>
                     </div>
-                    {effectiveSummary?.by_category && effectiveSummary.by_category.length > 0 ? (
+                    {effectiveSummary?.by_category ? (
                       <ul className="category-list">
-                        {effectiveSummary.by_category.map((cat, idx) => (
+                        {effectiveSummary.by_category.map((cat) => (
                           <li key={cat.id ?? cat.name} className="category-item">
                             <div className="category-main">
                               <span className="category-name">{cat.name}</span>
@@ -711,234 +513,41 @@ return (
                         ))}
                       </ul>
                     ) : (
-                      <p className="empty-state">No category data yet.</p>
+                      <p className="empty-state">No data yet.</p>
                     )}
                   </div>
                 </aside>
 
                 <section className="layout-main">
-                  <div className="cards-grid">
-                    <div className="card">
-                      <div className="card-label">
-                        Total spent ({period === "weekly" ? "this week" : "this month"})
-                      </div>
-                      <div className="card-value">
-                        {summaryLoading ? (
-                          <span style={{ opacity: 0.5 }}>Loading...</span>
-                        ) : totalSpent !== null ? (
-                          `₹${Number(totalSpent).toFixed(2)}`
-                        ) : (
-                          "–"
-                        )}
-                      </div>
-                      {effectiveSummary?.start && effectiveSummary?.end && (
-                        <div className="card-caption">
-                          {effectiveSummary.start} → {effectiveSummary.end}
-                        </div>
-                      )}
-                    </div>
+                  <SummaryCards
+                    summary={effectiveSummary}
+                    loading={summaryLoading}
+                    period={period}
+                    totalSpent={totalSpent}
+                    topCategory={topCategory}
+                    expenseCount={effectiveSummary?.count ?? expenses.length ?? 0}
+                  />
 
-                    <div className="card">
-                      <div className="card-label">Top category</div>
-                      <div className="card-value">
-                        {summaryLoading ? (
-                          <span style={{ opacity: 0.5 }}>Loading...</span>
-                        ) : topCategory ? (
-                          topCategory
-                        ) : (
-                          "No data"
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="card">
-                      <div className="card-label">Total expenses</div>
-                      <div className="card-value">
-                        {summaryLoading ? (
-                          <span style={{ opacity: 0.5 }}>Loading...</span>
-                        ) : effectiveSummary?.by_category ? (
-                          effectiveSummary.by_category.reduce((acc, cat) => acc + 1, 0)
-                        ) : (
-                          expenses.length
-                        )}
-                      </div>
-                      <div className="card-caption">
-                        {period === "weekly" ? "This week" : "This month"}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="panel">
-                    <div className="panel-header">
-                      <h2 className="panel-title">Category breakdown</h2>
-                      <span className="panel-caption">Where your money goes</span>
-                    </div>
-                    {effectiveSummary?.by_category && effectiveSummary.by_category.length > 0 && totalSpent ? (
-                      <>
-                        <div
-                          className="pie-chart"
-                          style={{
-                            backgroundImage: (() => {
-                              const colors = ["#a855f7", "#0ea5e9", "#22c55e", "#f97316", "#e11d48", "#facc15"];
-                              let acc = 0;
-                              const segments = effectiveSummary.by_category.map((cat, i) => {
-                                const pct = (Number(cat.total) / Number(totalSpent)) * 100;
-                                const start = acc;
-                                const end = acc + pct;
-                                acc = end;
-                                const color = colors[i % colors.length];
-                                return `${color} ${start}% ${end}%`;
-                              });
-                              return `conic-gradient(${segments.join(",")})`;
-                            })(),
-                          }}
-                        />
-                        <ul className="category-list">
-                          {effectiveSummary.by_category.map((cat, idx) => (
-                            <li key={cat.id ?? cat.name} className="category-item">
-                              <div className="category-main">
-                                <span className="category-name">
-                                  <span
-                                    className="pie-legend-dot"
-                                    style={{
-                                      backgroundColor: ["#22c55e", "#0ea5e9", "#a855f7", "#f97316", "#e11d48", "#facc15"][idx % 6],
-                                    }}
-                                  />
-                                  {cat.name}
-                                </span>
-                                <span className="category-amount">₹{Number(cat.total).toFixed(2)}</span>
-                              </div>
-                              <div className="category-bar-row">
-                                <div className="category-bar-track">
-                                  <div
-                                    className="category-bar-fill"
-                                    style={{
-                                      width: `${Math.min(100, (Number(cat.total) / Number(totalSpent)) * 100).toFixed(1)}%`,
-                                    }}
-                                  />
-                                </div>
-                                <span className="category-percent">
-                                  {((Number(cat.total) / Number(totalSpent)) * 100).toFixed(1)}%
-                                </span>
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    ) : (
-                      <p className="empty-state">No category data yet.</p>
-                    )}
-                  </div>
+                  <CategoryBreakdown
+                    summary={effectiveSummary}
+                    totalSpent={totalSpent}
+                    loading={summaryLoading}
+                  />
                 </section>
               </>
             )}
 
             {activeTab === "expenses" && (
-              <section className="layout-full">
-                <div className="panel">
-                  <div className="panel-header">
-                    <h2 className="panel-title">Expenses</h2>
-                    <span className="panel-caption">Detailed list of your transactions</span>
-                  </div>
-
-                  <div className="filters-row">
-                    <div className="field">
-                      <label className="field-label" htmlFor="start">From</label>
-                      <input
-                        id="start"
-                        name="start"
-                        type="date"
-                        value={filters.start}
-                        onChange={handleFilterChange}
-                        className="input"
-                      />
-                    </div>
-                    <div className="field">
-                      <label className="field-label" htmlFor="end">To</label>
-                      <input
-                        id="end"
-                        name="end"
-                        type="date"
-                        value={filters.end}
-                        onChange={handleFilterChange}
-                        className="input"
-                      />
-                    </div>
-                    <div className="field field-grow">
-                      <label className="field-label" htmlFor="search">Search description</label>
-                      <input
-                        id="search"
-                        name="search"
-                        type="text"
-                        placeholder="e.g. groceries, cab, rent..."
-                        value={filters.search}
-                        onChange={handleFilterChange}
-                        className="input"
-                      />
-                    </div>
-                    <div className="field">
-                      <label className="field-label">&nbsp;</label>
-                      <button
-                        onClick={handleAllTimeClick}
-                        className={period === "all" ? "pill pill-active all-time-btn" : "pill all-time-btn"}
-                        title="Show all expenses"
-                      >
-                        All Time
-                      </button>
-                    </div>
-                  </div>
-
-                  {loading ? (
-                    <div className="skeleton-table" />
-                  ) : error ? (
-                    <div className="alert alert-error">{error}</div>
-                  ) : expenses.length === 0 ? (
-                    <p className="empty-state">No expenses found for this view.</p>
-                  ) : (
-                    <div className="table-wrapper">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Date</th>
-                            <th>Description</th>
-                            <th>Category</th>
-                            <th className="text-right">Amount</th>
-                            <th className="text-center">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {expenses.map((expense) => (
-                            <tr key={expense.id} className="expense-row">
-                              <td>{expense.date || "–"}</td>
-                              <td>{expense.description || "No description"}</td>
-                              <td>{expense.category_name || "Uncategorized"}</td>
-                              <td className="text-right">₹{Number(expense.amount).toFixed(2)}</td>
-                              <td className="text-center">
-                                <button
-                                  className="edit-btn"
-                                  onClick={() => handleEditExpense(expense)}
-                                  title="Edit expense"
-                                >
-                                  <svg 
-                                    className="edit-icon" 
-                                    viewBox="0 0 24 24" 
-                                    fill="none" 
-                                    stroke="currentColor" 
-                                    strokeWidth="2"
-                                  >
-                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                                    <path d="m18.5 2.5 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                                  </svg>
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </section>
+              <ExpenseList
+                expenses={expenses}
+                loading={expensesLoading}
+                error={error}
+                filters={filters}
+                onFilterChange={handleFilterChange}
+                onEdit={handleEditExpense}
+                onAllTimeClick={handleAllTimeClick}
+                period={period}
+              />
             )}
           </main>
         </div>
@@ -954,195 +563,40 @@ return (
         </button>
 
         {/* Modals */}
-        {showExpenseModal && (
-          <div className="modal-overlay" onClick={() => setShowExpenseModal(false)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2 className="modal-title">Add New Expense</h2>
-                <button className="modal-close" onClick={() => setShowExpenseModal(false)}>×</button>
-              </div>
-              
-              <form onSubmit={handleExpenseSubmit} className="expense-form">
-                <div className="form-row">
-                  <div className="field">
-                    <label className="field-label" htmlFor="amount">Amount *</label>
-                    <input
-                      id="amount"
-                      name="amount"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="99999999.99"
-                      placeholder="0.00"
-                      value={expenseForm.amount}
-                      onChange={handleExpenseFormChange}
-                      className="input"
-                      required
-                    />
-                  </div>
-                  
-                  <div className="field">
-                    <label className="field-label" htmlFor="date">Date</label>
-                    <input
-                      id="date"
-                      name="date"
-                      type="date"
-                      value={expenseForm.date}
-                      onChange={handleExpenseFormChange}
-                      className="input"
-                    />
-                  </div>
-                </div>
+        <ExpenseModal
+          show={showExpenseModal}
+          onClose={() => setShowExpenseModal(false)}
+          onSubmit={handleExpenseSubmit}
+          form={expenseForm}
+          onChange={handleExpenseFormChange}
+          submitting={submitting}
+          error={error}
+        />
 
-                <div className="field">
-                  <label className="field-label" htmlFor="description">Description *</label>
-                  <input
-                    id="description"
-                    name="description"
-                    type="text"
-                    placeholder="e.g. Groceries, Coffee, Taxi..."
-                    value={expenseForm.description}
-                    onChange={handleExpenseFormChange}
-                    className="input"
-                    required
-                  />
-                </div>
-
-                <div className="field">
-                  <label className="field-label" htmlFor="category">Category (Optional)</label>
-                  <input
-                    id="category"
-                    name="category"
-                    type="text"
-                    placeholder="e.g. Food, Transport, Entertainment..."
-                    value={expenseForm.category}
-                    onChange={handleExpenseFormChange}
-                    className="input"
-                  />
-                </div>
-
-                {error && <div className="alert alert-error">{error}</div>}
-
-                <div className="form-actions">
-                  <button type="button" onClick={() => setShowExpenseModal(false)} className="btn btn-secondary" disabled={submitting}>
-                    Cancel
-                  </button>
-                  <button type="submit" className="btn btn-primary" disabled={submitting}>
-                    {submitting ? "Adding..." : "Add Expense"}
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {showEditModal && (
-          <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h2 className="modal-title">Edit Expense</h2>
-                <button className="modal-close" onClick={() => setShowEditModal(false)}>×</button>
-              </div>
-              
-              <form onSubmit={handleEditSubmit} className="expense-form">
-                <div className="form-row">
-                  <div className="field">
-                    <label className="field-label" htmlFor="edit-amount">Amount *</label>
-                    <input
-                      id="edit-amount"
-                      name="amount"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max="99999999.99"
-                      placeholder="0.00"
-                      value={editForm.amount}
-                      onChange={handleEditFormChange}
-                      className="input"
-                      required
-                    />
-                  </div>
-                  
-                  <div className="field">
-                    <label className="field-label" htmlFor="edit-date">Date</label>
-                    <input
-                      id="edit-date"
-                      name="date"
-                      type="date"
-                      value={editForm.date}
-                      onChange={handleEditFormChange}
-                      className="input"
-                    />
-                  </div>
-                </div>
-
-                <div className="field">
-                  <label className="field-label" htmlFor="edit-description">Description *</label>
-                  <input
-                    id="edit-description"
-                    name="description"
-                    type="text"
-                    placeholder="e.g. Groceries, Coffee, Taxi..."
-                    value={editForm.description}
-                    onChange={handleEditFormChange}
-                    className="input"
-                    required
-                  />
-                </div>
-
-                <div className="field">
-                  <label className="field-label" htmlFor="edit-category">Category</label>
-                  <input
-                    id="edit-category"
-                    name="category"
-                    type="text"
-                    placeholder="e.g. Food, Transport, Entertainment..."
-                    value={editForm.category}
-                    onChange={handleEditFormChange}
-                    className="input"
-                  />
-                </div>
-
-                {error && <div className="alert alert-error">{error}</div>}
-
-                <div className="form-actions">
-                  <button 
-                    type="button" 
-                    onClick={handleDeleteExpense} 
-                    className="btn btn-danger" 
-                    disabled={submitting}
-                  >
-                    {submitting ? "Deleting..." : "Delete"}
-                  </button>
-                  <div className="form-actions-right">
-                    <button type="button" onClick={() => setShowEditModal(false)} className="btn btn-secondary" disabled={submitting}>
-                      Cancel
-                    </button>
-                    <button type="submit" className="btn btn-primary" disabled={submitting}>
-                      {submitting ? "Updating..." : "Update"}
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
+        <ExpenseModal
+          show={showEditModal}
+          onClose={() => setShowEditModal(false)}
+          onSubmit={handleEditSubmit}
+          form={editForm}
+          onChange={handleEditFormChange}
+          submitting={submitting}
+          error={error}
+          isEdit={true}
+          onDelete={handleDeleteExpense}
+        />
 
         {showUserModal && (
           <div className="modal-overlay" onClick={() => setShowUserModal(false)}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h2 className="modal-title">User Preferences </h2>
+                <h2 className="modal-title">User Preferences</h2>
                 <button className="modal-close" onClick={() => setShowUserModal(false)}>×</button>
               </div>
-              
               <div className="user-settings-content">
                 <div className="setting-item">
-                  <label className="setting-label" htmlFor="month-start">Month Start Date</label>
-                  <select 
-                    id="month-start" 
+                  <label className="setting-label">Month Start Date</label>
+                  <select
                     className="setting-input"
-                    defaultValue="1"
                     value={monthStartDay || 1}
                     onChange={handleMonthStartChange}
                   >
@@ -1150,15 +604,10 @@ return (
                       <option key={day} value={day}>{day}</option>
                     ))}
                   </select>
-                  <p className="setting-description">
-                    Choose which day of the month your budget cycle starts
-                  </p>
                 </div>
-
                 <div className="setting-item">
-                  <label className="setting-label" htmlFor="theme">Theme</label>
-                  <select 
-                    id="theme" 
+                  <label className="setting-label">Theme</label>
+                  <select
                     className="setting-input"
                     value={theme}
                     onChange={(e) => setTheme(e.target.value)}
@@ -1166,19 +615,6 @@ return (
                     <option value="dark">Dark Theme</option>
                     <option value="light">Light Theme</option>
                   </select>
-                  <p className="setting-description">
-                    Choose your preferred color scheme
-                  </p>
-                </div>
-
-                <div className="settings-actions">
-                  <button 
-                    type="button" 
-                    onClick={() => setShowUserModal(false)} 
-                    className="btn btn-secondary"
-                  >
-                    Close
-                  </button>
                 </div>
               </div>
             </div>

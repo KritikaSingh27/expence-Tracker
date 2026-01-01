@@ -1,230 +1,126 @@
-# 💰 AI-Powered Expense Tracker
+# MoneyNotes
 
-A modern, intelligent expense tracking application that helps you understand and reflect on your spending patterns with the power of AI insights.
+MoneyNotes is a modern, AI-powered expense tracker designed to help you understand your spending habits with ease. Built with React, Django, and Google Gemini AI, it offers a seamless experience for tracking expenses, categorizing transactions, and gaining personalized financial insights.
 
-![Expense Tracker](https://img.shields.io/badge/Status-Active-brightgreen)
-![React](https://img.shields.io/badge/React-19.2.0-blue)
-![Django](https://img.shields.io/badge/Django-Latest-green)
-![AI Powered](https://img.shields.io/badge/AI-Google%20Gemini-orange)
+## Features
 
-## ✨ Features
+*   **AI-Powered Insights**: Get personalized financial advice and spending analysis powered by Google Gemini 2.5.
+*   **Smart Categorization**: Automatically categorizes your expenses based on descriptions using AI.
+*   **Real-time Dashboard**: View your spending summaries, category breakdowns, and recent transactions instantly.
+*   **Secure Authentication**: Integrated with Clerk for secure and easy user authentication.
+*   **Responsive Design**: A beautiful, dark-mode-first UI that works great on desktop and mobile.
+*   **Flexible Filtering**: Filter expenses by weekly, monthly, or custom date ranges.
 
-### 🎯 Core Functionality
-- **Expense Management**: Add, view, and categorize your expenses with ease
-- **Smart Categorization**: Automatic expense categorization with manual override
-- **Period Filtering**: Switch between weekly and monthly views
-- **Real-time Search**: Filter expenses by description, date range, or category
+## Tech Stack
 
-### 🤖 AI-Powered Insights
-- **Intelligent Analysis**: Google Gemini AI analyzes your spending patterns
-- **Personalized Recommendations**: Get tailored insights about your financial habits
-- **Spending Trends**: Understand where your money goes with AI-generated summaries
-- **Smart Notifications**: Receive proactive spending alerts and suggestions
+*   **Frontend**: React, Vite, Axios, Clerk React SDK
+*   **Backend**: Django, Django REST Framework
+*   **AI**: Google Gemini API
+*   **Database**: SQLite (Default), easily swappable for PostgreSQL
+*   **Styling**: Custom CSS with a focus on modern aesthetics
 
-### 🎨 Modern UI/UX
-- **Dual Theme Support**: Beautiful dark and light themes
-- **Responsive Design**: Works seamlessly on desktop, tablet, and mobile
-- **Interactive Animations**: Smooth hover effects and transitions
-- **Clean Dashboard**: Intuitive overview with cards, charts, and visualizations
+## Prerequisites
 
-### 📊 Data Visualization
-- **Category Breakdown**: Interactive pie charts and bar graphs
-- **Spending Summary**: Quick overview cards with key metrics
-- **Period Comparisons**: Weekly vs monthly spending analysis
-- **Visual Trends**: Easy-to-understand spending patterns
+Before you begin, ensure you have the following installed:
 
-## 🏗️ Architecture
+*   **Node.js** (v18 or higher)
+*   **Python** (v3.10 or higher)
+*   **Git**
 
-### Frontend (React + Vite)
-- **Framework**: React 19.2.0 with modern hooks
-- **Build Tool**: Vite for fast development and building
-- **Styling**: Custom CSS with advanced animations and themes
-- **HTTP Client**: Axios for API communication
-- **State Management**: React hooks for local state
-
-### Backend (Django REST Framework)
-- **Framework**: Django with REST API endpoints
-- **Database**: SQLite (easily configurable to PostgreSQL/MySQL)
-- **AI Integration**: Google Gemini API for intelligent insights
-- **Authentication**: Django's built-in auth system (optional)
-- **API Design**: RESTful endpoints with proper serialization
-
-## 🚀 Quick Start
-
-### Prerequisites
-- **Python 3.8+**
-- **Node.js 16+**
-- **npm or yarn**
-- **Google Gemini API Key** (for AI features)
+## Setup Instructions
 
 ### 1. Clone the Repository
+
 ```bash
 git clone <repository-url>
-cd expense-tracker
+cd MoneyNotes
 ```
 
-### 2. Backend Setup
+### 2. Backend Setup (Django)
+
+Navigate to the `tracker` directory:
+
 ```bash
-# Navigate to backend directory
 cd tracker
+```
 
-# Create virtual environment
+Create and activate a virtual environment:
+
+```bash
+# Windows
 python -m venv .venv
+.\.venv\Scripts\Activate
 
-# Activate virtual environment
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
+# macOS/Linux
+python3 -m venv .venv
 source .venv/bin/activate
+```
 
-# Install dependencies
-pip install django djangorestframework django-cors-headers google-generativeai
+Install Python dependencies:
 
-# Set up environment variables
-cp .env.example .env
-# Edit .env and add your Google Gemini API key
+```bash
+pip install -r requirements.txt
+```
 
-# Run migrations
+Set up environment variables:
+Create a `.env` file in the `tracker` directory and add your keys:
+
+```env
+GOOGLE_API_KEY=your_google_gemini_api_key
+CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+CLERK_SECRET_KEY=your_clerk_secret_key
+```
+
+Run migrations and start the server:
+
+```bash
 python manage.py migrate
-
-# Create superuser (optional)
-python manage.py createsuperuser
-
-# Start backend server
 python manage.py runserver
 ```
 
-### 3. Frontend Setup
+The backend will be running at `http://127.0.0.1:8000`.
+
+### 3. Frontend Setup (React)
+
+Open a new terminal and navigate to the `Frontend/expense-frontend` directory:
+
 ```bash
-# Navigate to frontend directory
 cd Frontend/expense-frontend
+```
 
-# Install dependencies
+Install Node dependencies:
+
+```bash
 npm install
+```
 
-# Start development server
+Set up environment variables:
+Create a `.env` file in the `Frontend/expense-frontend` directory:
+
+```env
+VITE_CLERK_PUBLISHABLE_KEY=your_clerk_publishable_key
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+Start the development server:
+
+```bash
 npm run dev
 ```
 
-### 4. Access the Application
-- **Frontend**: http://localhost:5173
-- **Backend API**: http://localhost:8000
-- **Admin Panel**: http://localhost:8000/admin
+The frontend will be running at `http://localhost:5173` (or similar).
 
-## 🔧 Configuration
+## Usage
 
-### Environment Variables
-Create a `.env` file in the `tracker` directory:
+1.  **Sign In**: Use the "Sign In" button to authenticate via Clerk.
+2.  **Add Expense**: Click the floating "+" button to add a new expense. Enter the amount and description. The AI will attempt to auto-categorize it.
+3.  **View Insights**: The dashboard will automatically generate insights based on your spending patterns once you have enough data.
+4.  **Filter**: Use the "Weekly" / "Monthly" toggles or the date pickers to view expenses for specific periods.
 
-```env
-SECRET_KEY=your-django-secret-key
-GOOGLE_API_KEY=your-google-gemini-api-key
-DEBUG=True
-```
+## Contributing
 
-### API Endpoints
-- `GET /api/expenses/` - List expenses with filtering
-- `POST /api/expenses/` - Create new expense
-- `GET /api/expenses/summary/` - Get spending summary
-- `GET /api/expenses/insights/` - Get AI-powered insights
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 🎨 Themes & Customization
+## License
 
-### Theme Switching
-The application supports both dark and light themes:
-- **Dark Theme**: Default elegant dark mode with green accents
-- **Light Theme**: Clean light mode with consistent styling
-- **Auto Theme**: Automatically switches based on system preference
-
-### Customization
-- Modify CSS variables in `App.css` for color schemes
-- Adjust AI insight prompts in Django views
-- Configure period calculations in frontend components
-
-## 🤖 AI Features
-
-### Google Gemini Integration
-The application uses Google's Gemini AI to provide:
-- **Spending Pattern Analysis**: Identifies trends in your expenses
-- **Category Insights**: Understands your spending distribution
-- **Personalized Recommendations**: Suggests ways to optimize spending
-- **Natural Language Summaries**: Easy-to-understand financial insights
-
-### AI Insights Panel
-- Prominent AI-powered section with animated elements
-- Real-time analysis of spending data
-- Visual indicators for AI-generated content
-- Fallback states for when insufficient data is available
-
-## 📱 Responsive Design
-
-The application is fully responsive and works on:
-- **Desktop**: Full-featured dashboard with sidebar layout
-- **Tablet**: Adapted grid layout with touch-friendly controls
-- **Mobile**: Stacked layout with optimized navigation
-
-## 🔒 Security Features
-
-- **Environment Variable Protection**: Sensitive keys stored securely
-- **CORS Configuration**: Proper cross-origin request handling
-- **Input Validation**: Frontend and backend validation
-- **Optional Authentication**: Can work with or without user accounts
-
-## 🛠️ Development
-
-### Project Structure
-```
-expense-tracker/
-├── Frontend/
-│   └── expense-frontend/          # React frontend
-│       ├── src/
-│       │   ├── App.jsx           # Main application component
-│       │   ├── App.css           # Styling and themes
-│       │   └── main.jsx          # Application entry point
-│       └── package.json
-├── tracker/                       # Django backend
-│   ├── expense/                   # Main app
-│   │   ├── models.py             # Database models
-│   │   ├── views.py              # API endpoints
-│   │   ├── serializers.py        # Data serialization
-│   │   └── ai/                   # AI integration
-│   ├── tracker/                   # Project settings
-│   └── manage.py
-└── README.md
-```
-
-### Adding New Features
-1. **Backend**: Add models, views, and serializers in the `expense` app
-2. **Frontend**: Create components and integrate with existing state management
-3. **AI**: Extend AI prompts and analysis in the `ai` module
-4. **Styling**: Add theme-aware CSS classes for consistent design
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **Google Gemini AI** for intelligent insights
-- **React Team** for the amazing frontend framework
-- **Django Team** for the robust backend framework
-- **Vite** for lightning-fast development experience
-
-## 📞 Support
-
-If you encounter any issues or have questions:
-1. Check the [Issues](../../issues) section
-2. Create a new issue with detailed information
-3. Provide steps to reproduce any bugs
-
----
-
-**Built with ❤️ and AI** - Making expense tracking intelligent and beautiful.
+This project is open-source and available under the MIT License.

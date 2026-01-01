@@ -23,10 +23,10 @@ class Tag(models.Model):
 
 class Expense(models.Model):
     # In this setup we allow user to be null so API can be used without auth
-    user_id = models.CharField(max_length=255)
+    user_id = models.CharField(max_length=255, db_index=True)
     amount = models.DecimalField(decimal_places=2, max_digits=10)
     description = models.TextField(null=True, blank= True)
-    date = models.DateField(null=True, blank=True)
+    date = models.DateField(null=True, blank=True, db_index=True)
     category = models.ForeignKey(
         Category,
         null=True,
