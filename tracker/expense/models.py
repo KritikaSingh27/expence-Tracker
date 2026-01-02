@@ -41,7 +41,6 @@ class Expense(models.Model):
 
 class userSetting(models.Model):
     user_id = models.CharField(max_length=255, unique=True, db_index=True)
-    month_start_date = models.PositiveIntegerField(default= 1)
     theme = models.CharField(max_length=20, default="dark")
 
     def __str__(self):

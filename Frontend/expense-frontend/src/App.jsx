@@ -47,7 +47,6 @@ function App() {
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1); // 1-12
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [monthStartDay, setMonthStartDay] = useState(1);
   const [filters, setFilters] = useState({
     start: "",
     end: "",
@@ -130,12 +129,12 @@ function App() {
     }
   };
 
-  const fetchSummaryAndInsights = async () => {
+  const fetchSummaryAndInsights = async (forceInsights = false) => {
     const lastFetch = localStorage.getItem('lastAIRequest');
     const now = Date.now();
 
-    // Throttle AI requests (Insights only)
-    const shouldSkipAI = lastFetch && (now - lastFetch < 60000); // 1 min throttle
+    // Throttle AI requests (Insights only) - but allow forcing when filters change
+    const shouldSkipAI = !forceInsights && lastFetch && (now - lastFetch < 60000); // 1 min throttle
 
     try {
       setSummaryLoading(true);
@@ -184,7 +183,7 @@ function App() {
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
     fetchExpenses();
-    fetchSummaryAndInsights();
+    fetchSummaryAndInsights(true); // Force insights refresh when filters change
   }, [isLoaded, isSignedIn, filters.start, filters.end, filters.search, period, selectedMonth, selectedYear]);
 
 
@@ -345,23 +344,6 @@ function App() {
     }
   };
 
-  const handleMonthStartChange = async (e) => {
-    const newDay = e.target.value;
-    setMonthStartDay(newDay);
-    try {
-      const res = await axios.get(`${API_BASE}/settings/`);
-      const settingsId = res.data[0]?.id;
-      if (settingsId) {
-        await axios.patch(`${API_BASE}/settings/${settingsId}/`, {
-          month_start_date: parseInt(newDay)
-        });
-        refreshData();
-      }
-    } catch (err) {
-      console.error("Failed to update settings:", err);
-    }
-  }
-
   // Derived Data
   const effectiveSummary = summary ?? insights?.summary ?? null;
   const totalSpent = effectiveSummary?.total ?? insights?.cards?.total_spent ?? null;
@@ -441,6 +423,10 @@ function App() {
                   onClick={() => {
                     setPeriod("monthly");
                     setFilters(prev => ({ ...prev, start: "", end: "" }));
+                    // Reset to current month when switching to monthly view
+                    const now = new Date();
+                    setSelectedMonth(now.getMonth() + 1);
+                    setSelectedYear(now.getFullYear());
                   }}
                 >
                   Monthly
@@ -589,22 +575,10 @@ function App() {
           <div className="modal-overlay" onClick={() => setShowUserModal(false)}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h2 className="modal-title">User Preferences</h2>
+                <h2 className="modal-title">User Preference</h2>
                 <button className="modal-close" onClick={() => setShowUserModal(false)}>×</button>
               </div>
               <div className="user-settings-content">
-                <div className="setting-item">
-                  <label className="setting-label">Month Start Date</label>
-                  <select
-                    className="setting-input"
-                    value={monthStartDay || 1}
-                    onChange={handleMonthStartChange}
-                  >
-                    {Array.from({ length: 30 }, (_, i) => i + 1).map(day => (
-                      <option key={day} value={day}>{day}</option>
-                    ))}
-                  </select>
-                </div>
                 <div className="setting-item">
                   <label className="setting-label">Theme</label>
                   <select
