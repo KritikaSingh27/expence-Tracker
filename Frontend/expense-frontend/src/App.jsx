@@ -455,8 +455,8 @@ function App() {
               </div>
 
               <button className="user-profile-btn menu-dots-btn" onClick={() => setShowUserModal(true)}>
-                <img className="three-dots" src="three-dots-menu.png" alt="menu" />
-                <img className="three-dots-light" src="three-dots-light.png" alt="menu" />
+                <img className="theme_dark" src="theme_dark.png" alt="menu" />
+                <img className="theme_light" src="theme_light.png" alt="menu" />
               </button>
               <UserButton afterSignOutUrl="/" />
             </div>
@@ -575,7 +575,6 @@ function App() {
           <div className="modal-overlay" onClick={() => setShowUserModal(false)}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
-                <h2 className="modal-title">User Preference</h2>
                 <button className="modal-close" onClick={() => setShowUserModal(false)}>×</button>
               </div>
               <div className="user-settings-content">
