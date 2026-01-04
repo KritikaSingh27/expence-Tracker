@@ -16,15 +16,15 @@ const ExpenseModal = ({
     return (
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-                <div className="modal-header">
-                    <h2 className="modal-title">{isEdit ? "Edit Expense" : "Add New Expense"}</h2>
-                    <button className="modal-close" onClick={onClose}>×</button>
+                <div className="flex flex-col space-y-1.5 text-center sm:text-left mb-4">
+                    <h2 className="text-lg font-semibold leading-none tracking-tight">{isEdit ? "Edit Expense" : "Add New Expense"}</h2>
+                    <p className="text-sm text-muted-foreground">{isEdit ? "Make changes to your expense here." : "Add the details of your new expense."}</p>
                 </div>
 
-                <form onSubmit={onSubmit} className="expense-form">
-                    <div className="form-row">
-                        <div className="field">
-                            <label className="field-label" htmlFor="amount">Amount *</label>
+                <form onSubmit={onSubmit} className="grid gap-4">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70" htmlFor="amount">Amount *</label>
                             <input
                                 id={isEdit ? "edit-amount" : "amount"}
                                 name="amount"
@@ -40,8 +40,8 @@ const ExpenseModal = ({
                             />
                         </div>
 
-                        <div className="field">
-                            <label className="field-label" htmlFor="date">Date</label>
+                        <div className="grid gap-2">
+                            <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70" htmlFor="date">Date</label>
                             <input
                                 id={isEdit ? "edit-date" : "date"}
                                 name="date"
@@ -53,8 +53,8 @@ const ExpenseModal = ({
                         </div>
                     </div>
 
-                    <div className="field">
-                        <label className="field-label" htmlFor="description">Description *</label>
+                    <div className="grid gap-2">
+                        <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70" htmlFor="description">Description *</label>
                         <input
                             id={isEdit ? "edit-description" : "description"}
                             name="description"
@@ -67,8 +67,8 @@ const ExpenseModal = ({
                         />
                     </div>
 
-                    <div className="field">
-                        <label className="field-label" htmlFor="category">Category {isEdit ? "" : "(Optional)"}</label>
+                    <div className="grid gap-2">
+                        <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70" htmlFor="category">Category {isEdit ? "" : "(Optional)"}</label>
                         <input
                             id={isEdit ? "edit-category" : "category"}
                             name="category"
@@ -80,27 +80,25 @@ const ExpenseModal = ({
                         />
                     </div>
 
-                    {error && <div className="alert alert-error">{error}</div>}
+                    {error && <div className="p-3 text-sm text-destructive border border-destructive/50 rounded bg-destructive/10">{error}</div>}
 
-                    <div className="form-actions">
+                    <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 gap-2 mt-4">
                         {isEdit && (
                             <button
                                 type="button"
                                 onClick={onDelete}
-                                className="btn btn-danger"
+                                className="btn btn-destructive sm:mr-auto"
                                 disabled={submitting}
                             >
                                 {submitting ? "Deleting..." : "Delete"}
                             </button>
                         )}
-                        <div className={isEdit ? "form-actions-right" : ""}>
-                            <button type="button" onClick={onClose} className="btn btn-secondary" disabled={submitting}>
-                                Cancel
-                            </button>
-                            <button type="submit" className="btn btn-primary" disabled={submitting}>
-                                {submitting ? (isEdit ? "Updating..." : "Adding...") : (isEdit ? "Update" : "Add Expense")}
-                            </button>
-                        </div>
+                        <button type="button" onClick={onClose} className="btn btn-outline" disabled={submitting}>
+                            Cancel
+                        </button>
+                        <button type="submit" className="btn btn-primary" disabled={submitting}>
+                            {submitting ? (isEdit ? "Updating..." : "Adding...") : (isEdit ? "Save Changes" : "Save Expense")}
+                        </button>
                     </div>
                 </form>
             </div>

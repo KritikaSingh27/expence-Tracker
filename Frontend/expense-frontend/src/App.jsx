@@ -6,11 +6,11 @@ import { useAuth } from "@clerk/clerk-react";
 
 import SummaryCards from "./components/SummaryCards";
 import InsightsPanel from "./components/InsightsPanel";
-import CategoryBreakdown from "./components/CategoryBreakdown";
+import SpendingGraph from "./components/SpendingGraph";
 import ExpenseList from "./components/ExpenseList";
 import ExpenseModal from "./components/ExpenseModal";
+import { ThemeToggle } from "./components/ThemeToggle";
 
-// Base API URL
 const API_BASE = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 function App() {
@@ -65,9 +65,6 @@ function App() {
 
   // User profile modal state
   const [showUserModal, setShowUserModal] = useState(false);
-
-  // Theme state - default is dark
-  const [theme, setTheme] = useState("dark");
 
   // Edit expense modal state
   const [showEditModal, setShowEditModal] = useState(false);
@@ -256,7 +253,7 @@ function App() {
         amount: parseFloat(expenseForm.amount),
         description: expenseForm.description,
         date: expenseForm.date,
-        category: expenseForm.category || null,
+        category_name: expenseForm.category || null,
       });
 
       setExpenseForm({
@@ -355,7 +352,7 @@ function App() {
   if (!isLoaded) return <div className="loading">Loading Auth...</div>;
 
   return (
-    <div className={theme === "light" ? "light-theme" : ""}>
+    <div className="min-h-screen bg-background text-foreground animate-in fade-in transition-colors duration-500">
       <SignedOut>
         <div className="landing-page">
           <nav className="landing-nav">
@@ -454,10 +451,7 @@ function App() {
                 </select>
               </div>
 
-              <button className="user-profile-btn menu-dots-btn" onClick={() => setShowUserModal(true)}>
-                <img className="theme_dark" src="theme_dark.png" alt="menu" />
-                <img className="theme_light" src="theme_light.png" alt="menu" />
-              </button>
+              <ThemeToggle />
               <UserButton afterSignOutUrl="/" />
             </div>
           </header>
@@ -477,34 +471,11 @@ function App() {
             </button>
           </div>
 
-          <main className="layout">
+          <main className="w-full">
             {activeTab === "overview" && (
-              <>
-                <aside className="layout-side">
-                  <InsightsPanel loading={insightsLoading} insightText={insightText} />
-
-                  <div className="panel">
-                    <div className="panel-header">
-                      <h2 className="panel-title">Category Totals</h2>
-                    </div>
-                    {effectiveSummary?.by_category ? (
-                      <ul className="category-list">
-                        {effectiveSummary.by_category.map((cat) => (
-                          <li key={cat.id ?? cat.name} className="category-item">
-                            <div className="category-main">
-                              <span className="category-name">{cat.name}</span>
-                              <span className="category-amount">₹{Number(cat.total).toFixed(2)}</span>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="empty-state">No data yet.</p>
-                    )}
-                  </div>
-                </aside>
-
-                <section className="layout-main">
+              <div className="flex flex-col gap-6">
+                {/* Top Row: Summary Cards */}
+                <section>
                   <SummaryCards
                     summary={effectiveSummary}
                     loading={summaryLoading}
@@ -513,14 +484,25 @@ function App() {
                     topCategory={topCategory}
                     expenseCount={effectiveSummary?.count ?? expenses.length ?? 0}
                   />
-
-                  <CategoryBreakdown
-                    summary={effectiveSummary}
-                    totalSpent={totalSpent}
-                    loading={summaryLoading}
-                  />
                 </section>
-              </>
+
+                {/* Main Content Grid: Chart + Sidebar */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                  {/* Left Column: Spending Graph (Takes up 2 cols) */}
+                  <div className="lg:col-span-2 space-y-6">
+                    <SpendingGraph
+                      expenses={expenses}
+                      period={period}
+                      loading={expensesLoading}
+                    />
+                  </div>
+
+                  {/* Right Column: Insights (Takes up 1 col) */}
+                  <div className="lg:col-span-1 space-y-6">
+                    <InsightsPanel loading={insightsLoading} insightText={insightText} />
+                  </div>
+                </div>
+              </div>
             )}
 
             {activeTab === "expenses" && (
@@ -578,17 +560,7 @@ function App() {
                 <button className="modal-close" onClick={() => setShowUserModal(false)}>×</button>
               </div>
               <div className="user-settings-content">
-                <div className="setting-item">
-                  <label className="setting-label">Theme</label>
-                  <select
-                    className="setting-input"
-                    value={theme}
-                    onChange={(e) => setTheme(e.target.value)}
-                  >
-                    <option value="dark">Dark Theme</option>
-                    <option value="light">Light Theme</option>
-                  </select>
-                </div>
+                <p>Settings coming soon...</p>
               </div>
             </div>
           </div>

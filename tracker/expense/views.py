@@ -93,29 +93,38 @@ class ExpenseViewSet(BaseClerkViewSet):
         # Save the expense
         expense = serializer.save(user_id=clerk_id)
 
-        if not expense.description:
-            return
-
-        # Ask Gemini for category
-        try:
-            suggestion = suggest_category(
-                description=expense.description,
-                amount=float(expense.amount),
-                model_name="gemini-2.5-flash"
+        # 1. Handle manual category assignment (Priority)
+        category_name = self.request.data.get('category_name')
+        if category_name and category_name.strip():
+            category, _ = Category.objects.get_or_create(
+                user_id=clerk_id,
+                name=category_name.strip()
             )
+            expense.category = category
+            expense.category_name = category.name
+            expense.save(update_fields=["category"]) # Not strictly needed if we save again, but good for clarity of intent
 
-            if suggestion and isinstance(suggestion, dict):
-                cat_name = suggestion.get("category")
-                if cat_name:
-                    category_obj, _ = Category.objects.get_or_create(
-                        user_id=clerk_id,
-                        name=cat_name.strip()
-                    )
-                    expense.category = category_obj
-                    expense.category_name = category_obj.name
-                    expense.save()
-        except Exception as e:
-            print(f"AI Auto-categorization failed: {e}")
+        # 2. AI Auto-categorization (Fallback if no category)
+        elif expense.description and not expense.category:
+            try:
+                suggestion = suggest_category(
+                    description=expense.description,
+                    amount=float(expense.amount),
+                    model_name="gemini-2.5-flash"
+                )
+
+                if suggestion and isinstance(suggestion, dict):
+                    cat_name = suggestion.get("category")
+                    if cat_name:
+                        category_obj, _ = Category.objects.get_or_create(
+                            user_id=clerk_id,
+                            name=cat_name.strip()
+                        )
+                        expense.category = category_obj
+                        # expense.category_name = category_obj.name # Computed field / not on model usually, but harmless
+                        expense.save(update_fields=["category"])
+            except Exception as e:
+                print(f"AI Auto-categorization failed: {e}")
 
     def perform_update(self, serializer):
         clerk_id = self.get_clerk_id()
